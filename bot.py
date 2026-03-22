@@ -37,6 +37,9 @@ class ScalpingBot:
         if self.config.testnet:
             logger.warning("⚠️  TESTNET MODE - No real money at risk")
 
+        # Sincronizza clock con Binance — fix errore -1022
+        await self.client.sync_clock()
+
         # Seleziona coppie automaticamente o da config
         if self.config.auto_select_pairs:
             logger.info("🔍 Analisi mercato per selezione coppie...")
@@ -79,40 +82,32 @@ class ScalpingBot:
         logger.info("✅ Bot stopped cleanly.")
 
     async def _on_kline(self, pair: str, kline_data: dict):
-        """Called on every new candle close."""
         strategy = self.strategies.get(pair)
         if not strategy:
             return
-
         strategy.update_kline(kline_data)
         await self._evaluate_signal(pair)
 
     async def _on_orderbook(self, pair: str, orderbook: dict):
-        """Called on every order book update."""
         strategy = self.strategies.get(pair)
         if not strategy:
             return
-
         strategy.update_orderbook(orderbook)
         await self._evaluate_signal(pair)
 
     async def _on_trade(self, pair: str, trade: dict):
-        """Called on every individual trade."""
         strategy = self.strategies.get(pair)
         if strategy:
             strategy.update_trade(trade)
 
     async def _evaluate_signal(self, pair: str):
-        """Evaluate current signal and act."""
         if not self.running:
             return
 
-        # 🎯 Target giornaliero raggiunto — pausa fino a domani
         if self.risk_manager.is_daily_target_hit():
             await self.eod_manager.run()
             return
 
-        # ⛔ Limite perdita giornaliera — stop bot
         if self.risk_manager.is_daily_limit_hit():
             if self.running:
                 logger.error("❌ Daily loss limit reached. Stopping bot.")
@@ -125,16 +120,13 @@ class ScalpingBot:
         if signal == "NONE":
             return
 
-        # Check risk before entering
         if not self.risk_manager.can_open_trade(pair):
             return
 
         logger.info(f"📡 Signal: {signal} | {pair}")
 
-        # Execute on Spot
         if self.config.enable_spot:
             await self.order_manager.open_trade(pair, signal, market="SPOT")
 
-        # Execute on Futures
         if self.config.enable_futures:
             await self.order_manager.open_trade(pair, signal, market="FUTURES")
