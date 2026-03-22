@@ -106,3 +106,12 @@ class ScalpingStrategy:
             if self._last_signal != "SHORT":
                 self._last_signal = "SHORT"
                 logger.info(
+                    f"📉 {self.pair} SHORT | EMA {self.ema_fast.value:.2f}<{self.ema_slow.value:.2f} "
+                    f"| OB={sell_ratio:.0%} | flow={sell_flow:.2f}/{total_flow:.2f}"
+                )
+                return "SHORT"
+
+        else:
+            self._last_signal = "NONE"
+
+        return "NONE"
