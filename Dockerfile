@@ -9,4 +9,6 @@ COPY . .
 
 RUN mkdir -p logs
 
-CMD ["python3", "main.py"]
+EXPOSE 10000
+
+CMD ["python3", "-u", "main.py"]
