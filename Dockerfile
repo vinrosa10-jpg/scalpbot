@@ -10,4 +10,4 @@ COPY . .
 
 RUN mkdir -p logs
 
-CMD gunicorn --bind 0.0.0.0:$PORT --timeout 120 --workers 1 wsgi:app
+CMD ["sh" , "-c" ,"guicorn --bind 0.0.0.0:$PORT --timeout 120 --worker 1 wsgi:app"]
