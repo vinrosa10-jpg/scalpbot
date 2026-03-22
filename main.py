@@ -34,18 +34,22 @@ async def main():
     start_time = time.time()
 
     async def shutdown():
-        uptime = time.time() - start_time
-        if uptime < 30:
-            logger.warning(f"⚠️  SIGTERM ignorato (uptime {uptime:.1f}s < 30s)")
-            return
         logger.warning("🛑 Shutdown in corso...")
         stop_event.set()
         await bot.stop()
         await api.stop()
 
+    def handle_sigterm():
+        uptime = time.time() - start_time
+        if uptime < 90:
+            logger.warning(f"⚠️ SIGTERM ignorato (uptime {uptime:.1f}s — deploy rolling)")
+            return
+        logger.warning("🛑 SIGTERM ricevuto — shutdown...")
+        asyncio.create_task(shutdown())
+
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+    loop.add_signal_handler(signal.SIGINT,  lambda: asyncio.create_task(shutdown()))
+    loop.add_signal_handler(signal.SIGTERM, handle_sigterm)
 
     bot_task = asyncio.create_task(bot.start())
 
