@@ -1,15 +1,11 @@
 """
 Bot Configuration
-Edit .env file or set environment variables before running.
 """
-
 import os
 from dataclasses import dataclass, field
 from typing import List
 from dotenv import load_dotenv
-
 load_dotenv()
-
 
 @dataclass
 class Config:
@@ -19,55 +15,53 @@ class Config:
 
     # Markets
     enable_spot: bool = True
-    enable_futures: bool = True
+    enable_futures: bool = False  # False di default — testnet non supporta futures
 
-    # Pair selector - auto sceglie le migliori coppie
-    auto_select_pairs: bool = True         # True = selezione automatica
-    max_pairs: int = 8                     # Quante coppie tradare contemporaneamente
-    min_volume_usdt: float = 50_000_000    # Volume minimo 24h ($50M)
-    min_volatility_pct: float = 1.0        # Variazione minima 24h (1%)
+    # Pair selector
+    auto_select_pairs: bool = True
+    max_pairs: int = 3             # Ridotto — con 100 USDT meglio 3 coppie
+    min_volume_usdt: float = 50_000_000
+    min_volatility_pct: float = 1.0
 
-    # Fallback pairs (usate se auto_select fallisce o auto_select=False)
     pairs: List[str] = field(default_factory=lambda: [
-        "BTCUSDT", "ETHUSDT", "BNBUSDT",
-        "SOLUSDT", "XRPUSDT"
+        "BTCUSDT", "ETHUSDT", "BNBUSDT"
     ])
 
     # Strategy params
     ema_fast: int = 9
     ema_slow: int = 21
-    ob_imbalance_threshold: float = 0.65   # >65% one side = signal
-    ob_depth_levels: int = 10              # Order book levels to read
+    ob_imbalance_threshold: float = 0.58  # Abbassato da 0.65 — più segnali
+    ob_depth_levels: int = 10
 
     # Risk management
-    position_size_usdt: float = 20.0       # Per trade in USDT
-    max_open_trades: int = 4               # Simultaneously
-    take_profit_pct: float = 0.003         # 0.3%
-    stop_loss_pct: float = 0.0015          # 0.15%
-    max_daily_loss_usdt: float = 50.0      # Bot stops if daily loss > this
-    daily_profit_target_pct: float = 0.20  # 🎯 Stop alle +20% giornalieri
-    max_drawdown_pct: float = 0.15         # Riduce size se drawdown > 15%
-    futures_leverage: int = 5              # Leverage on futures only
+    position_size_usdt: float = 15.0      # Ridotto da 20
+    max_open_trades: int = 3              # Ridotto da 4
+    take_profit_pct: float = 0.003        # 0.3%
+    stop_loss_pct: float = 0.0015         # 0.15%
+    max_daily_loss_usdt: float = 20.0     # Ridotto — capitale è 100 USDT
+    daily_profit_target_pct: float = 0.20
+    max_drawdown_pct: float = 0.15
+    futures_leverage: int = 5
 
     # Execution
-    order_type: str = "LIMIT"             # LIMIT or MARKET
-    limit_order_offset_pct: float = 0.0001 # 0.01% better than ask/bid
-    order_timeout_sec: int = 10            # Cancel unfilled limit orders after N sec
+    order_type: str = "MARKET"            # MARKET invece di LIMIT — esegue subito
+    limit_order_offset_pct: float = 0.0001
+    order_timeout_sec: int = 10
 
-    # Timeframe for EMA
+    # Timeframe
     kline_interval: str = "1m"
 
-    # Auto compounding
-    starting_capital_usdt: float = 100.0  # Capitale iniziale
-    position_pct_of_capital: float = 0.15 # 15% del capitale per trade
-    max_position_usdt: float = 500.0       # Cap massimo per singolo trade
+    # Capital management
+    starting_capital_usdt: float = 100.0
+    position_pct_of_capital: float = 0.12  # 12% per trade
+    max_position_usdt: float = 500.0
 
-    # Fine giornata — allocazione automatica del capitale
-    eod_usdt_pct: float = 0.80            # 80% rimane in USDT
-    eod_usdc_pct: float = 0.10            # 10% convertito in USDC
-    eod_bnb_pct: float = 0.10             # 10% convertito in BNB (commissioni -25%)
+    # Fine giornata
+    eod_usdt_pct: float = 0.80
+    eod_usdc_pct: float = 0.10
+    eod_bnb_pct: float = 0.10
 
-    # Testnet mode (HIGHLY RECOMMENDED to test first!)
+    # Testnet
     testnet: bool = True
 
     @classmethod
@@ -76,13 +70,33 @@ class Config:
             api_key=os.getenv("BINANCE_API_KEY", ""),
             api_secret=os.getenv("BINANCE_API_SECRET", ""),
             enable_spot=os.getenv("ENABLE_SPOT", "true").lower() == "true",
-            enable_futures=os.getenv("ENABLE_FUTURES", "true").lower() == "true",
+            enable_futures=os.getenv("ENABLE_FUTURES", "false").lower() == "true",
             testnet=os.getenv("TESTNET", "true").lower() == "true",
-            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "20")),
-            max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "4")),
+
+            # Strategy — ora caricabili da env
+            ob_imbalance_threshold=float(os.getenv("OB_IMBALANCE_THRESHOLD", "0.58")),
+            ema_fast=int(os.getenv("EMA_FAST", "9")),
+            ema_slow=int(os.getenv("EMA_SLOW", "21")),
+
+            # Risk
+            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "15")),
+            max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "3")),
             take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.003")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.0015")),
-            max_daily_loss_usdt=float(os.getenv("MAX_DAILY_LOSS_USDT", "50")),
+            max_daily_loss_usdt=float(os.getenv("MAX_DAILY_LOSS_USDT", "20")),
+            daily_profit_target_pct=float(os.getenv("DAILY_PROFIT_TARGET_PCT", "0.20")),
             futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "5")),
-            pairs=os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT").split(","),
+
+            # Capital
+            starting_capital_usdt=float(os.getenv("STARTING_CAPITAL_USDT", "100")),
+            position_pct_of_capital=float(os.getenv("POSITION_PCT_OF_CAPITAL", "0.12")),
+
+            # Pairs
+            auto_select_pairs=os.getenv("AUTO_SELECT_PAIRS", "true").lower() == "true",
+            max_pairs=int(os.getenv("MAX_PAIRS", "3")),
+            pairs=os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT").split(","),
+
+            # Execution
+            order_type=os.getenv("ORDER_TYPE", "MARKET"),
+            kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
         )
