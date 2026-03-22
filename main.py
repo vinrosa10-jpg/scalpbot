@@ -3,6 +3,7 @@ import asyncio
 import signal
 import sys
 import os
+import time
 from loguru import logger
 from config import Config
 from bot import ScalpingBot
@@ -30,8 +31,13 @@ async def main():
     logger.info(f"✅ API Server attivo su 0.0.0.0:{port}")
 
     stop_event = asyncio.Event()
+    start_time = time.time()
 
     async def shutdown():
+        uptime = time.time() - start_time
+        if uptime < 30:
+            logger.warning(f"⚠️  SIGTERM ignorato (uptime {uptime:.1f}s < 30s)")
+            return
         logger.warning("🛑 Shutdown in corso...")
         stop_event.set()
         await bot.stop()
