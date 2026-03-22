@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Binance Scalping Bot - Main Entry Point
-Avvia il bot + API server per controllo da iPhone
 """
 
 import asyncio
 import signal
 import sys
+import os
 from loguru import logger
 from config import Config
 from bot import ScalpingBot
@@ -18,7 +18,6 @@ def setup_logging():
     logger.add(sys.stdout,
                format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}",
                level="INFO")
-    import os
     os.makedirs("logs", exist_ok=True)
     logger.add("logs/bot_{time:YYYY-MM-DD}.log",
                rotation="1 day", retention="7 days", level="DEBUG")
@@ -30,20 +29,14 @@ async def main():
 
     logger.info("🚀 Avvio Binance Scalping Bot")
     logger.info(f"🎯 Target giornaliero: {config.daily_profit_target_pct*100:.0f}%")
-    logger.info(f"🛡️  Stop loss giornaliero: {config.max_daily_loss_usdt} USDT")
 
     bot = ScalpingBot(config)
     api = APIServer(bot, config)
 
+    # Avvia API server PRIMA del bot (Render richiede risposta immediata sulla porta)
     await api.start()
-
-    try:
-        import socket
-        local_ip = socket.gethostbyname(socket.gethostname())
-        logger.info(f"📱 App iPhone → apri: http://{local_ip}:8080")
-        logger.info(f"📱 Inserisci IP nell'app: {local_ip}")
-    except Exception:
-        logger.info("📱 Trova il tuo IP con: ipconfig getifaddr en0")
+    logger.info(f"📱 API Server avviato sulla porta {api.port}")
+    logger.info(f"📱 Testa: https://scalpbot-o2k5.onrender.com/status")
 
     def shutdown(sig, frame):
         logger.warning("🛑 Stop...")
@@ -53,11 +46,13 @@ async def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
+    # Avvia bot in background, API server rimane in ascolto
+    bot_task = asyncio.create_task(bot.start())
+
     try:
-        await bot.start()
+        await bot_task
     except Exception as e:
         logger.error(f"Errore: {e}")
-        raise
     finally:
         await api.stop()
 
