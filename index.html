@@ -30,6 +30,7 @@
     .banner{margin:0 16px 10px;padding:9px 14px;border-radius:10px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:8px;flex-shrink:0}
     .banner.demo{background:rgba(255,209,102,.1);border:1px solid rgba(255,209,102,.3);color:var(--yellow)}
     .banner.live{background:var(--gdim);border:1px solid rgba(0,255,136,.3);color:var(--green)}
+    .banner.error{background:var(--rdim);border:1px solid rgba(255,58,92,.3);color:var(--red)}
     .page{display:none;padding:0 16px}.page.active{display:block}
     .hero{padding:22px;background:var(--surface);border:1px solid var(--border);border-radius:20px;position:relative;overflow:hidden;margin-bottom:12px}
     .hero::before{content:'';position:absolute;top:-40px;right:-40px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(0,255,136,.15),transparent 70%)}
@@ -125,6 +126,8 @@
     .sinp:focus{outline:none;border-color:var(--green)}
     .savebtn{width:100%;padding:16px;background:var(--green);color:#000;border:none;border-radius:14px;font-family:var(--sans);font-size:15px;font-weight:800;letter-spacing:.05em;cursor:pointer;transition:all .15s;margin-top:4px;-webkit-user-select:none;user-select:none}
     .savebtn:active{transform:scale(.98);opacity:.9}
+    .testbtn{width:100%;padding:13px;background:transparent;color:var(--blue);border:1px solid var(--blue);border-radius:14px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;margin-top:8px;-webkit-user-select:none;user-select:none}
+    .testbtn:active{transform:scale(.98)}
     .hint{margin-top:16px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
     .htitle{font-size:10px;letter-spacing:.15em;color:var(--dim);font-family:var(--mono);text-transform:uppercase;margin-bottom:8px}
     .hbody{font-size:12px;color:var(--text);line-height:1.7;font-family:var(--mono)}
@@ -139,6 +142,10 @@
     .toast.red{border-color:var(--red);color:var(--red)}
     .toast.yellow{border-color:var(--yellow);color:var(--yellow)}
     .empty{text-align:center;padding:28px 20px;color:var(--dim);font-size:12px;font-family:var(--mono);line-height:1.8}
+    .conn-status{display:flex;align-items:center;gap:6px;font-size:10px;font-family:var(--mono);color:var(--dim);margin-bottom:16px}
+    .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--dim)}
+    .conn-dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}
+    .conn-dot.err{background:var(--red)}
   </style>
 </head>
 <body>
@@ -150,20 +157,20 @@
     </div>
     <div class="pill running" id="sPill"><div class="dot"></div><span id="sTxt">ATTIVO</span></div>
   </div>
-  <div class="banner demo" id="banner">⚡ DEMO — Configura server nelle impostazioni</div>
+  <div class="banner demo" id="banner">⏳ Connessione in corso...</div>
   <div class="scroll-area">
     <div class="page active" id="pageDashboard">
       <div class="hero">
         <div class="lbl">Profitto oggi</div>
-        <div class="pval pos" id="dPnl">+0.00 €</div>
-        <div class="psub">Capitale: <strong id="totCap">100.00 €</strong> · Win rate: <strong id="wr">—</strong></div>
+        <div class="pval pos" id="dPnl">+0.00 $</div>
+        <div class="psub">Capitale: <strong id="totCap">100.00 $</strong> · Win rate: <strong id="wr">—</strong></div>
         <div class="pt"><div class="ptl"><span>Verso target</span><span id="prPct">0%</span></div><div class="ptr"><div class="ptf" id="prFill" style="width:0%"></div></div></div>
       </div>
       <div class="sg">
         <div class="sc g"><div class="sl">Vinti</div><div class="sv" id="wins">0</div><div class="ss">oggi</div></div>
         <div class="sc r"><div class="sl">Persi</div><div class="sv" id="losses">0</div><div class="ss">oggi</div></div>
         <div class="sc b"><div class="sl">Coppie</div><div class="sv" id="actP">0</div><div class="ss">attive</div></div>
-        <div class="sc y"><div class="sl">Target</div><div class="sv" id="tPct">20%</div><div class="ss" id="tUsd">+20.00 €</div></div>
+        <div class="sc y"><div class="sl">Target</div><div class="sv" id="tPct">20%</div><div class="ss" id="tUsd">+20.00 $</div></div>
       </div>
       <div class="stitle">Posizioni aperte</div>
       <div class="tlist" id="tradeList"><div class="empty">Nessuna posizione aperta</div></div>
@@ -203,12 +210,14 @@
     <div class="page" id="pageSettings">
       <div class="ptitle">Impostazioni</div>
       <div class="psub2">Connessione al server</div>
+      <div class="conn-status"><div class="conn-dot" id="connDot"></div><span id="connTxt">Non connesso</span></div>
       <div class="stitle">Server Render</div>
       <div class="srow"><div><div class="slbl">URL Server</div><div class="ssub">es: scalpbot-xxxx.onrender.com</div></div><input class="sinp" id="sIp" type="text" placeholder="URL" inputmode="url" style="width:160px;font-size:11px"></div>
       <div class="stitle">Parametri</div>
-      <div class="srow"><div><div class="slbl">Capitale (€)</div><div class="ssub">importo iniziale</div></div><input class="sinp" id="sCap" type="number" value="100" inputmode="decimal"></div>
+      <div class="srow"><div><div class="slbl">Capitale ($)</div><div class="ssub">importo iniziale</div></div><input class="sinp" id="sCap" type="number" value="100" inputmode="decimal"></div>
       <div class="srow"><div><div class="slbl">Target %</div><div class="ssub">% giornaliero</div></div><input class="sinp" id="sTgt" type="number" value="20" inputmode="decimal"></div>
       <button class="savebtn" onclick="saveSettings()">SALVA E APPLICA</button>
+      <button class="testbtn" onclick="testConn()">🔌 TESTA CONNESSIONE</button>
       <div class="hint"><div class="htitle">Come aggiungere alla home</div><div class="hbody">1. Apri in Safari 🧭<br>2. Tap ⬆️ Condividi<br>3. "Aggiungi a schermata Home"<br>4. Funziona come app ✅</div></div>
     </div>
   </div>
@@ -221,12 +230,17 @@
 </div>
 <div class="toast" id="toast"></div>
 <script>
-var S={status:'running',capital:100,pnl:0,target:20,wins:0,losses:0,trades:[],log:[],risk:'high',url:'',connected:false};
+// ─── CONFIG ───────────────────────────────────────────────
+var DEFAULT_URL = 'https://scalpbot-q2k5.onrender.com';
+// ──────────────────────────────────────────────────────────
+
+var S={status:'stopped',capital:100,pnl:0,target:20,wins:0,losses:0,trades:[],log:[],risk:'high',url:'',connected:false};
 var poll=null;
+var demoMode=false;
 
 function apiUrl(path){
-  if(!S.url) return null;
-  var base=S.url.startsWith('http')?S.url:'https://'+S.url;
+  var base=S.url||DEFAULT_URL;
+  if(!base.startsWith('http')) base='https://'+base;
   return base.replace(/\/$/,'')+path;
 }
 
@@ -240,42 +254,80 @@ function goPage(n,i){
 function loadSettings(){
   try{
     var s=JSON.parse(localStorage.getItem('sb4')||'{}');
-    S.url=s.url||''; S.capital=s.capital||100; S.target=s.target||20;
+    // Usa URL salvato oppure default
+    S.url=s.url||DEFAULT_URL;
+    S.capital=s.capital||100;
+    S.target=s.target||20;
     document.getElementById('sIp').value=S.url;
     document.getElementById('sCap').value=S.capital;
     document.getElementById('sTgt').value=S.target;
-  }catch(e){}
+  }catch(e){
+    S.url=DEFAULT_URL;
+    document.getElementById('sIp').value=DEFAULT_URL;
+  }
 }
 
 function saveSettings(){
-  S.url=document.getElementById('sIp').value.trim();
+  S.url=document.getElementById('sIp').value.trim()||DEFAULT_URL;
   S.capital=parseFloat(document.getElementById('sCap').value)||100;
   S.target=parseFloat(document.getElementById('sTgt').value)||20;
   localStorage.setItem('sb4',JSON.stringify({url:S.url,capital:S.capital,target:S.target}));
   toast('✅ Salvato!','green');
-  if(S.url) startPoll();
-  else toast('⚠️ Inserisci URL server','yellow');
+  demoMode=false;
+  startPoll();
+}
+
+async function testConn(){
+  toast('🔌 Test in corso...','yellow');
+  try{
+    var r=await fetch(apiUrl('/health'),{signal:AbortSignal.timeout(6000)});
+    var d=await r.json();
+    if(d.ok){toast('✅ Server raggiungibile!','green');setConn(true);}
+    else{toast('⚠️ Risposta inattesa','yellow');}
+  }catch(e){
+    toast('❌ Non raggiungibile: '+e.message,'red');
+    setConn(false);
+  }
 }
 
 async function fetchStatus(){
-  var url=apiUrl('/status');
-  if(!url) return;
   try{
-    var r=await fetch(url,{signal:AbortSignal.timeout(5000)});
+    var r=await fetch(apiUrl('/status'),{signal:AbortSignal.timeout(6000)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
-    S.status=d.status||'running'; S.capital=d.capital||S.capital;
-    S.pnl=d.daily_pnl||0; S.wins=d.wins||0; S.losses=d.losses||0;
-    S.trades=d.trades||[]; if(d.log&&d.log.length) S.log=d.log;
-    setConn(true); updateUI();
-  }catch(e){setConn(false);}
+    S.status=d.status||'running';
+    S.capital=d.capital||S.capital;
+    S.pnl=d.daily_pnl||0;
+    S.wins=d.wins||0;
+    S.losses=d.losses||0;
+    S.trades=d.trades||[];
+    if(d.log&&d.log.length) S.log=d.log;
+    if(d.target_pct) S.target=d.target_pct;
+    setConn(true);
+    updateUI();
+  }catch(e){
+    setConn(false);
+    // Dopo 3 tentativi falliti passa a demo
+    S._fails=(S._fails||0)+1;
+    if(S._fails>=3&&!demoMode){
+      demoMode=true;
+      addLog('warn','⚠️ Server non raggiungibile — modalità demo');
+    }
+  }
 }
 
 async function sendCmd(cmd){
-  var url=apiUrl('/command');
-  if(!url){toast('⚠️ Configura URL nelle impostazioni','yellow');return;}
   try{
-    await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:cmd}),signal:AbortSignal.timeout(5000)});
-    toast('✅ Comando: '+cmd,'green'); setTimeout(fetchStatus,600);
+    var r=await fetch(apiUrl('/command'),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({command:cmd}),
+      signal:AbortSignal.timeout(6000)
+    });
+    var d=await r.json();
+    if(d.ok) toast('✅ '+cmd,'green');
+    else toast('⚠️ '+( d.msg||'errore'),'yellow');
+    setTimeout(fetchStatus,800);
   }catch(e){toast('❌ Server non raggiungibile','red');}
 }
 
@@ -284,41 +336,75 @@ async function setRisk(l){
   document.getElementById('rH').className='rcard'+(l==='high'?' ah':'');
   document.getElementById('rL').className='rcard'+(l==='low'?' al':'');
   toast(l==='high'?'🔥 Alto rischio (20%)':'🛡️ Basso rischio (5%)',l==='high'?'green':'yellow');
-  var url=apiUrl('/command');
-  if(url){try{await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:'set_risk',value:l,target:l==='high'?20:5}),signal:AbortSignal.timeout(5000)});}catch(e){}}
+  try{
+    await fetch(apiUrl('/command'),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({command:'set_risk',value:l,target:l==='high'?20:5}),
+      signal:AbortSignal.timeout(6000)
+    });
+  }catch(e){}
 }
 
-async function emerg(){if(confirm('⚠️ Chiudere TUTTE le posizioni?')) await sendCmd('emergency_stop');}
+async function emerg(){
+  if(confirm('⚠️ Chiudere TUTTE le posizioni?')) await sendCmd('emergency_stop');
+}
 
 function setConn(ok){
   S.connected=ok;
+  S._fails=ok?0:(S._fails||0);
   var b=document.getElementById('banner');
-  b.className='banner '+(ok?'live':'demo');
-  b.textContent=ok?'🟢 CONNESSO — '+S.url:'⚡ DEMO — Configura server nelle impostazioni';
+  var dot=document.getElementById('connDot');
+  var txt=document.getElementById('connTxt');
+  if(ok){
+    b.className='banner live';
+    b.textContent='🟢 CONNESSO — '+(S.url||DEFAULT_URL).replace('https://','');
+    if(dot){dot.className='conn-dot ok';}
+    if(txt){txt.textContent='Connesso a '+(S.url||DEFAULT_URL).replace('https://','');}
+  }else{
+    b.className='banner error';
+    b.textContent='🔴 Server non raggiungibile';
+    if(dot){dot.className='conn-dot err';}
+    if(txt){txt.textContent='Errore connessione';}
+  }
 }
 
-function startPoll(){if(poll)clearInterval(poll); fetchStatus(); poll=setInterval(fetchStatus,3000);}
+function startPoll(){
+  if(poll) clearInterval(poll);
+  S._fails=0;
+  fetchStatus();
+  poll=setInterval(function(){
+    if(demoMode) demoTick();
+    else fetchStatus();
+  },3000);
+}
 
 async function runScan(){
-  var btn=document.getElementById('scanBtn'); btn.textContent='⟳ ...';
-  var url=apiUrl('/status');
-  if(url){
-    try{
-      var r=await fetch(url,{signal:AbortSignal.timeout(5000)});
-      var d=await r.json();
-      if(d.active_pairs&&d.active_pairs.length){renderScanServer(d.active_pairs);btn.textContent='⟳ Scansiona';return;}
-    }catch(e){}
-  }
+  var btn=document.getElementById('scanBtn');
+  btn.textContent='⟳ ...';
+  try{
+    var r=await fetch(apiUrl('/status'),{signal:AbortSignal.timeout(6000)});
+    var d=await r.json();
+    if(d.active_pairs&&d.active_pairs.length){
+      renderScanServer(d.active_pairs);
+      btn.textContent='⟳ Scansiona';
+      return;
+    }
+  }catch(e){}
   setTimeout(function(){renderScanDemo();btn.textContent='⟳ Scansiona';},1400);
 }
 
 function renderScanServer(pairs){
-  var now=new Date(); document.getElementById('lastScan').textContent='Ultima: '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-  buildScanHTML(pairs.map(function(sym,i){return{s:sym,icon:icoFor(sym),vol:Math.round(Math.random()*800+100),chg:(Math.random()*8+1).toFixed(1),range:(Math.random()*10+2).toFixed(1),score:90-i*7};}));
+  var now=new Date();
+  document.getElementById('lastScan').textContent='Ultima: '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  buildScanHTML(pairs.map(function(sym,i){
+    return{s:sym,icon:icoFor(sym),vol:Math.round(Math.random()*800+100),chg:(Math.random()*8+1).toFixed(1),range:(Math.random()*10+2).toFixed(1),score:90-i*7};
+  }));
 }
 
 function renderScanDemo(){
-  var now=new Date(); document.getElementById('lastScan').textContent='Ultima: '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  var now=new Date();
+  document.getElementById('lastScan').textContent='Ultima: '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   var raw=[{s:'SOLUSDT',icon:'◎',vol:610,chg:8.1,range:9.7},{s:'AVAXUSDT',icon:'▲',vol:180,chg:7.8,range:10.2},{s:'DOGEUSDT',icon:'Ð',vol:290,chg:6.2,range:8.4},{s:'XRPUSDT',icon:'✕',vol:520,chg:5.4,range:7.1},{s:'ETHUSDT',icon:'Ξ',vol:920,chg:4.8,range:6.3},{s:'BTCUSDT',icon:'₿',vol:1842,chg:3.2,range:4.1},{s:'BNBUSDT',icon:'⬡',vol:380,chg:2.1,range:3.2},{s:'LTCUSDT',icon:'Ł',vol:95,chg:2.8,range:3.9}];
   raw.forEach(function(p,i){p.score=95-i*8+(Math.random()*4-2);});
   raw.sort(function(a,b){return b.score-a.score;});
@@ -335,51 +421,71 @@ function buildScanHTML(data){
   document.getElementById('scanList').innerHTML=html;
 }
 
-function icoFor(s){var m={BTC:'₿',ETH:'Ξ',SOL:'◎',BNB:'⬡',XRP:'✕',DOGE:'Ð',AVAX:'▲',LINK:'⬡',MATIC:'⬡',LTC:'Ł'};for(var k in m){if(s.startsWith(k))return m[k];}return'◆';}
+function icoFor(s){
+  var m={BTC:'₿',ETH:'Ξ',SOL:'◎',BNB:'⬡',XRP:'✕',DOGE:'Ð',AVAX:'▲',LINK:'⬡',MATIC:'⬡',LTC:'Ł'};
+  for(var k in m){if(s.startsWith(k))return m[k];}
+  return '◆';
+}
 
 function updateUI(){
   var p=S.pnl,t=S.target,cap=S.capital;
   var el=document.getElementById('dPnl');
-  el.textContent=(p>=0?'+':'')+p.toFixed(2)+' €'; el.className='pval '+(p>=0?'pos':'neg');
-  document.getElementById('totCap').textContent=(cap+p).toFixed(2)+' €';
+  el.textContent=(p>=0?'+':'')+p.toFixed(2)+' $';
+  el.className='pval '+(p>=0?'pos':'neg');
+  document.getElementById('totCap').textContent=(cap+p).toFixed(2)+' $';
   document.getElementById('wr').textContent=(S.wins+S.losses)>0?Math.round(S.wins/(S.wins+S.losses)*100)+'%':'—';
   var tu=cap*t/100,pr=Math.min(100,Math.max(0,p/tu*100));
-  document.getElementById('prFill').style.width=pr+'%'; document.getElementById('prPct').textContent=Math.round(pr)+'%';
-  document.getElementById('wins').textContent=S.wins; document.getElementById('losses').textContent=S.losses;
+  document.getElementById('prFill').style.width=pr+'%';
+  document.getElementById('prPct').textContent=Math.round(pr)+'%';
+  document.getElementById('wins').textContent=S.wins;
+  document.getElementById('losses').textContent=S.losses;
   document.getElementById('actP').textContent=S.trades.length;
-  document.getElementById('tPct').textContent=t+'%'; document.getElementById('tUsd').textContent='+'+tu.toFixed(2)+' €';
+  document.getElementById('tPct').textContent=t+'%';
+  document.getElementById('tUsd').textContent='+'+tu.toFixed(2)+' $';
   var tot=cap+p;
   document.getElementById('uBal').textContent=(tot*.8).toFixed(2);
   document.getElementById('ucBal').textContent=(tot*.1).toFixed(2);
   document.getElementById('bBal').textContent=(tot*.1).toFixed(2);
   var sm={running:['running','ATTIVO'],paused:['paused','PAUSA'],stopped:['stopped','FERMO'],target_hit:['paused','TARGET ✓']};
   var sv=sm[S.status]||['running','ATTIVO'];
-  document.getElementById('sPill').className='pill '+sv[0]; document.getElementById('sTxt').textContent=sv[1];
-  renderTrades(); renderLog();
+  document.getElementById('sPill').className='pill '+sv[0];
+  document.getElementById('sTxt').textContent=sv[1];
+  renderTrades();
+  renderLog();
 }
 
 function renderTrades(){
   var el=document.getElementById('tradeList');
   if(!S.trades.length){el.innerHTML='<div class="empty">Nessuna posizione aperta</div>';return;}
-  el.innerHTML=S.trades.map(function(t){var ico=icoFor(t.symbol);var p=t.pnl||0;return'<div class="trow"><div class="tl"><div class="tico">'+ico+'</div><div><div class="tname">'+t.symbol+'</div><div style="margin-top:3px"><span class="tbadge '+(t.side==='LONG'?'long':'short')+'">'+t.side+'</span></div></div></div><div class="tr"><div class="tpnl '+(p>=0?'pos':'neg')+'">'+(p>=0?'+':'')+p.toFixed(3)+'</div><div class="tmkt">'+t.market+'</div></div></div>';}).join('');
+  el.innerHTML=S.trades.map(function(t){
+    var ico=icoFor(t.symbol);var p=t.pnl||0;
+    return '<div class="trow"><div class="tl"><div class="tico">'+ico+'</div><div><div class="tname">'+t.symbol+'</div><div style="margin-top:3px"><span class="tbadge '+(t.side==='LONG'?'long':'short')+'">'+t.side+'</span></div></div></div><div class="tr"><div class="tpnl '+(p>=0?'pos':'neg')+'">'+(p>=0?'+':'')+p.toFixed(3)+'</div><div class="tmkt">'+t.market+'</div></div></div>';
+  }).join('');
 }
 
 function renderLog(){
   var el=document.getElementById('logList');
   if(!S.log.length)return;
-  el.innerHTML=S.log.slice().reverse().slice(0,15).map(function(l){return'<div class="li '+(l.type||'info')+'"><span class="lt">'+l.time+'</span><span class="lm">'+l.msg+'</span></div>';}).join('');
+  el.innerHTML=S.log.slice().reverse().slice(0,15).map(function(l){
+    return '<div class="li '+(l.type||'info')+'"><span class="lt">'+l.time+'</span><span class="lm">'+l.msg+'</span></div>';
+  }).join('');
 }
 
 function addLog(t,m){
-  var n=new Date();var ts=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
-  S.log.push({type:t,msg:m,time:ts});if(S.log.length>50)S.log.shift();renderLog();
+  var n=new Date();
+  var ts=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
+  S.log.push({type:t,msg:m,time:ts});
+  if(S.log.length>50)S.log.shift();
+  renderLog();
 }
 
 function demoTick(){
   S.pnl=Math.max(-S.capital*.1,Math.min(S.capital*S.target/100,S.pnl+(Math.random()-.43)*.9));
   if(Math.random()>.82){
     var ps=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT'];
-    var pa=ps[Math.floor(Math.random()*ps.length)];var si=Math.random()>.5?'LONG':'SHORT';var pn=(Math.random()-.4)*2;
+    var pa=ps[Math.floor(Math.random()*ps.length)];
+    var si=Math.random()>.5?'LONG':'SHORT';
+    var pn=(Math.random()-.4)*2;
     if(pn>0)S.wins++;else S.losses++;
     addLog(pn>0?'win':'loss',(pn>0?'✅':'❌')+' '+pa+' '+si+' '+(pn>0?'+':'')+pn.toFixed(3)+' USDT');
     if(S.pnl>=S.capital*S.target/100&&S.status==='running'){S.status='target_hit';addLog('warn','🎯 TARGET +'+S.target+'% raggiunto!');}
@@ -388,15 +494,19 @@ function demoTick(){
 }
 
 function toast(msg,col){
-  var t=document.getElementById('toast');t.textContent=msg;t.className='toast '+(col||'')+' show';
+  var t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='toast '+(col||'')+' show';
   setTimeout(function(){t.classList.remove('show');},2500);
 }
 
+// ─── INIT ─────────────────────────────────────────────────
 loadSettings();
 addLog('info','📱 ScalpBot avviato');
 updateUI();
-if(S.url){startPoll();addLog('info','🔗 Connessione a '+S.url+'...');}
-else{setInterval(demoTick,2000);addLog('warn','⚡ Demo — inserisci URL nelle impostazioni');}
+// Auto-connette sempre al server di default
+startPoll();
+addLog('info','🔗 Connessione a '+(S.url||DEFAULT_URL).replace('https://','')+'...');
 </script>
 </body>
 </html>
