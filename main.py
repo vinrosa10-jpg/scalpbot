@@ -1,4 +1,17 @@
+#!/usr/bin/env python3
+import asyncio
 import signal
+import sys
+import os
+from loguru import logger
+from config import Config
+from bot import ScalpingBot
+from api_server import APIServer
+
+def setup_logging():
+    logger.remove()
+    logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}", level="INFO")
+    os.makedirs("logs", exist_ok=True)
 
 async def main():
     setup_logging()
@@ -36,13 +49,7 @@ async def main():
 
     bot_task.add_done_callback(on_bot_error)
 
-    # Aspetta finché non arriva shutdown
     await stop_event.wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
-```
-
-Ma il vero fix è su Render — vai su **Settings → Docker Command** e imposta:
-```
-python3 -u main.py
