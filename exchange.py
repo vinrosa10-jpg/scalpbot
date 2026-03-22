@@ -59,7 +59,8 @@ class BinanceClient:
 
     def _sign(self, params: dict) -> dict:
         params["timestamp"] = int(time.time() * 1000)
-        query = urlencode(params)
+        params["recvWindow"] = 10000  # Tollera fino a 10s di clock skew
+        query = urlencode(sorted(params.items()))  # Ordine deterministico
         signature = hmac.new(
             self.config.api_secret.encode(),
             query.encode(),
