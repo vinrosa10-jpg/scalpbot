@@ -50,6 +50,7 @@ class BinanceClient:
             self._fut_ws    = self.FUTURES_WS
 
         self._session: Optional[aiohttp.ClientSession] = None
+        self._clock_offset: int = 0  # ms di offset rispetto a Binance
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -57,10 +58,26 @@ class BinanceClient:
             self._session = aiohttp.ClientSession(connector=connector)
         return self._session
 
+    async def sync_clock(self):
+        """Sincronizza il clock con Binance per evitare -1022."""
+        try:
+            path = "/api/v3/time"
+            data = await self._get("SPOT", path)
+            server_time = data["serverTime"]
+            local_time = int(time.time() * 1000)
+            self._clock_offset = server_time - local_time
+            logger.info(f"🕐 Clock sync: offset={self._clock_offset}ms")
+        except Exception as e:
+            logger.warning(f"Clock sync failed: {e}")
+
+    def _get_binance_time(self) -> int:
+        """Timestamp corretto compensando il clock skew."""
+        return int(time.time() * 1000) + self._clock_offset
+
     def _sign(self, params: dict) -> dict:
-        params["timestamp"] = int(time.time() * 1000)
-        params["recvWindow"] = 10000  # Tollera fino a 10s di clock skew
-        query = urlencode(sorted(params.items()))  # Ordine deterministico
+        params["timestamp"] = self._get_binance_time()
+        params["recvWindow"] = 20000  # 20 secondi di tolleranza
+        query = urlencode(sorted(params.items()))
         signature = hmac.new(
             self.config.api_secret.encode(),
             query.encode(),
