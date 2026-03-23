@@ -3,6 +3,7 @@ Order Manager - Handles entry, exit, TP/SL for all open trades.
 """
 
 import asyncio
+import math
 import time
 from typing import Dict, Optional
 from dataclasses import dataclass, field
@@ -25,12 +26,33 @@ class Trade:
     status: str = "OPEN"
 
 
+# Step size per coppia — LOT_SIZE filter di Binance testnet
+LOT_STEP = {
+    "BTCUSDT":  0.00001,
+    "ETHUSDT":  0.0001,
+    "BNBUSDT":  0.001,
+    "SOLUSDT":  0.01,
+    "XRPUSDT":  0.1,
+    "DOGEUSDT": 1.0,
+    "ADAUSDT":  1.0,
+}
+DEFAULT_STEP = 0.001
+
+
+def round_lot(qty: float, pair: str) -> float:
+    """Arrotonda qty al step size corretto per evitare LOT_SIZE filter."""
+    step = LOT_STEP.get(pair, DEFAULT_STEP)
+    qty = math.floor(qty / step) * step
+    precision = max(0, int(round(-math.log10(step))))
+    return round(qty, precision)
+
+
 class OrderManager:
     def __init__(self, client, risk_manager: RiskManager, config: Config):
         self.client = client
         self.risk_manager = risk_manager
         self.config = config
-        self.trades: Dict[str, Trade] = {}  # key = pair+market
+        self.trades: Dict[str, Trade] = {}
 
     def _trade_key(self, pair: str, market: str) -> str:
         return f"{pair}_{market}"
@@ -48,22 +70,27 @@ class OrderManager:
         price = float(ticker["price"])
         side = "BUY" if signal == "LONG" else "SELL"
 
-        # For SPOT, no shorting
+        # SPOT non supporta SHORT
         if market == "SPOT" and signal == "SHORT":
             return
 
         qty = self.risk_manager.calculate_position_size(price, market)
+        qty = round_lot(qty, pair)
+
+        if qty <= 0:
+            logger.warning(f"⚠️ Qty troppo piccola per {pair}: {qty} — posizione saltata")
+            return
+
         tp, sl = self.risk_manager.calculate_tp_sl(price, signal)
 
-        # Adjust limit price slightly for faster fill
         if side == "BUY":
             limit_price = price * (1 + self.config.limit_order_offset_pct)
         else:
             limit_price = price * (1 - self.config.limit_order_offset_pct)
 
-        limit_price = round(limit_price, 8)
+        limit_price = round(limit_price, 2)
 
-        logger.info(f"📥 Opening {signal} {pair} [{market}] | Price: {price} | TP: {tp} | SL: {sl}")
+        logger.info(f"📥 Opening {signal} {pair} [{market}] | Price: {price} | Qty: {qty} | TP: {tp} | SL: {sl}")
 
         try:
             order = await self.client.place_order(
@@ -89,6 +116,7 @@ class OrderManager:
 
             self.trades[key] = trade
             self.risk_manager.register_trade_open(pair)
+            logger.info(f"✅ Ordine aperto {pair} [{market}] | ID: {order_id}")
 
         except Exception as e:
             logger.error(f"Order error {pair} [{market}]: {e}")
@@ -133,7 +161,6 @@ class OrderManager:
         else:
             pnl = (trade.entry_price - exit_price) * trade.qty
 
-        # Subtract fees (~0.1% per leg on spot, 0.04% on futures)
         fee_pct = 0.001 if trade.market == "SPOT" else 0.0004
         fees = trade.entry_price * trade.qty * fee_pct * 2
         net_pnl = pnl - fees
