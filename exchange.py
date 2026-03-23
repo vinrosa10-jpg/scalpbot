@@ -100,15 +100,26 @@ class BinanceClient:
         async with session.get(url, params=params, headers=self._headers()) as r:
             return await r.json()
 
-    async def _post(self, market: str, path: str, params: dict):
-        session = await self._get_session()
-        params = self._sign(params)
-        url = self._base_url(market) + path
-        async with session.post(url, data=params, headers=self._headers()) as r:
-            data = await r.json()
-            if "code" in data and data["code"] != 200:
-                raise Exception(f"Binance error: {data}")
-            return data
+   async def _post(self, market: str, path: str, params: dict):
+    session = await self._get_session()
+    signed_query = self._sign(params)
+    url = self._base_url(market) + path
+    async with session.post(
+        url,
+        data=signed_query,
+        headers={**self._headers(), "Content-Type": "application/x-www-form-urlencoded"}
+    ) as r:
+        data = await r.json()
+        if "code" in data and data["code"] != 200:
+            raise Exception(f"Binance error: {data}")
+        return data
+
+async def _delete(self, market: str, path: str, params: dict):
+    session = await self._get_session()
+    signed_query = self._sign(params)
+    url = self._base_url(market) + path + "?" + signed_query
+    async with session.delete(url, headers=self._headers()) as r:
+        return await r.json()
 
     async def _delete(self, market: str, path: str, params: dict):
         session = await self._get_session()
