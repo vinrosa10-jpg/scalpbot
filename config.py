@@ -40,7 +40,7 @@ class Config:
     take_profit_pct: float = 0.008
     stop_loss_pct: float = 0.003
     max_daily_loss_usdt: float = 20.0
-    daily_profit_target_pct: float = 0.20
+    daily_profit_target_pct: float = 99.0  # Disabilitato — bot gira all'infinito
     max_drawdown_pct: float = 0.15
     futures_leverage: int = 5
 
@@ -85,7 +85,7 @@ class Config:
             take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.008")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.003")),
             max_daily_loss_usdt=float(os.getenv("MAX_DAILY_LOSS_USDT", "20")),
-            daily_profit_target_pct=float(os.getenv("DAILY_PROFIT_TARGET_PCT", "0.20")),
+            daily_profit_target_pct=float(os.getenv("DAILY_PROFIT_TARGET_PCT", "99.0")),
             futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "5")),
 
             # Capital
@@ -102,3 +102,4 @@ class Config:
             order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "60")),
             kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
         )
+
