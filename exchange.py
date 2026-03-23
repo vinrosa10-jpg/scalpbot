@@ -73,17 +73,16 @@ class BinanceClient:
     def _get_binance_time(self) -> int:
         return int(time.time() * 1000) + self._clock_offset
 
-    def _sign(self, params: dict) -> dict:
-        params["timestamp"] = self._get_binance_time()
-        params["recvWindow"] = 20000
-        query = urlencode(sorted(params.items()))
-        signature = hmac.new(
-            self.config.api_secret.encode(),
-            query.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        params["signature"] = signature
-        return params
+    def _sign(self, params: dict) -> str:
+    params["timestamp"] = self._get_binance_time()
+    params["recvWindow"] = 20000
+    query = urlencode(sorted(params.items()))
+    signature = hmac.new(
+        self.config.api_secret.encode(),
+        query.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return query + "&signature=" + signature
 
     def _headers(self) -> dict:
         return {"X-MBX-APIKEY": self.config.api_key}
