@@ -25,10 +25,10 @@ class APIServer:
             self._log_buffer.pop(0)
 
     async def start(self):
-        self._app.router.add_get('/',        self._handle_root)
-        self._app.router.add_get('/status',  self._handle_status)
-        self._app.router.add_post('/command',self._handle_command)
-        self._app.router.add_get('/health',  self._handle_health)
+        self._app.router.add_get('/',         self._handle_root)
+        self._app.router.add_get('/status',   self._handle_status)
+        self._app.router.add_post('/command', self._handle_command)
+        self._app.router.add_get('/health',   self._handle_health)
         self._app.middlewares.append(self._cors_middleware)
 
         self._runner = web.AppRunner(self._app)
@@ -66,17 +66,20 @@ class APIServer:
         om = self.bot.order_manager
 
         trades = []
-        for key, trade in om.trades.items():
-            ticker = await self.bot.client.get_ticker(trade.pair, trade.market)
-            current = float(ticker["price"]) if ticker else trade.entry_price
-            pnl = (current - trade.entry_price) * trade.qty if trade.side == "LONG" else (trade.entry_price - current) * trade.qty
-            trades.append({
-                "symbol": trade.pair,
-                "side": trade.side,
-                "market": trade.market,
-                "pnl": round(pnl, 4),
-                "entry": trade.entry_price,
-            })
+        for key, trade in list(om.trades.items()):  # fix: list() evita RuntimeError
+            try:
+                ticker = await self.bot.client.get_ticker(trade.pair, trade.market)
+                current = float(ticker["price"]) if ticker else trade.entry_price
+                pnl = (current - trade.entry_price) * trade.qty if trade.side == "LONG" else (trade.entry_price - current) * trade.qty
+                trades.append({
+                    "symbol": trade.pair,
+                    "side": trade.side,
+                    "market": trade.market,
+                    "pnl": round(pnl, 4),
+                    "entry": trade.entry_price,
+                })
+            except Exception:
+                continue
 
         if not self.bot.running:
             status = "stopped"
@@ -136,3 +139,8 @@ class APIServer:
             return web.json_response({"ok": False, "msg": "Comando sconosciuto"})
         except Exception as e:
             return web.json_response({"ok": False, "msg": str(e)}, status=500)
+```
+
+Poi aggiungi su **Render → Environment**:
+```
+ORDER_TYPE = MARKET
