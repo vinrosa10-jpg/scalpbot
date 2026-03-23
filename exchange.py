@@ -74,15 +74,16 @@ class BinanceClient:
         return int(time.time() * 1000) + self._clock_offset
 
     def _sign(self, params: dict) -> str:
-    params["timestamp"] = self._get_binance_time()
-    params["recvWindow"] = 20000
-    query = urlencode(sorted(params.items()))
-    signature = hmac.new(
-        self.config.api_secret.encode(),
-        query.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    return query + "&signature=" + signature
+        """Restituisce query string firmata pronta per l'invio."""
+        params["timestamp"] = self._get_binance_time()
+        params["recvWindow"] = 20000
+        query = urlencode(sorted(params.items()))
+        signature = hmac.new(
+            self.config.api_secret.encode(),
+            query.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return query + "&signature=" + signature
 
     def _headers(self) -> dict:
         return {"X-MBX-APIKEY": self.config.api_key}
@@ -94,38 +95,32 @@ class BinanceClient:
         session = await self._get_session()
         if params is None:
             params = {}
-        if signed:
-            params = self._sign(params)
         url = self._base_url(market) + path
-        async with session.get(url, params=params, headers=self._headers()) as r:
-            return await r.json()
+        if signed:
+            signed_query = self._sign(params)
+            url = url + "?" + signed_query
+            async with session.get(url, headers=self._headers()) as r:
+                return await r.json()
+        else:
+            async with session.get(url, params=params, headers=self._headers()) as r:
+                return await r.json()
 
-   async def _post(self, market: str, path: str, params: dict):
-    session = await self._get_session()
-    signed_query = self._sign(params)
-    url = self._base_url(market) + path
-    async with session.post(
-        url,
-        data=signed_query,
-        headers={**self._headers(), "Content-Type": "application/x-www-form-urlencoded"}
-    ) as r:
-        data = await r.json()
-        if "code" in data and data["code"] != 200:
-            raise Exception(f"Binance error: {data}")
-        return data
-
-async def _delete(self, market: str, path: str, params: dict):
-    session = await self._get_session()
-    signed_query = self._sign(params)
-    url = self._base_url(market) + path + "?" + signed_query
-    async with session.delete(url, headers=self._headers()) as r:
-        return await r.json()
+    async def _post(self, market: str, path: str, params: dict):
+        session = await self._get_session()
+        signed_query = self._sign(params)
+        url = self._base_url(market) + path
+        headers = {**self._headers(), "Content-Type": "application/x-www-form-urlencoded"}
+        async with session.post(url, data=signed_query, headers=headers) as r:
+            data = await r.json()
+            if "code" in data and data["code"] != 200:
+                raise Exception(f"Binance error: {data}")
+            return data
 
     async def _delete(self, market: str, path: str, params: dict):
         session = await self._get_session()
-        params = self._sign(params)
-        url = self._base_url(market) + path
-        async with session.delete(url, params=params, headers=self._headers()) as r:
+        signed_query = self._sign(params)
+        url = self._base_url(market) + path + "?" + signed_query
+        async with session.delete(url, headers=self._headers()) as r:
             return await r.json()
 
     async def get_ticker(self, pair: str, market: str) -> Optional[dict]:
