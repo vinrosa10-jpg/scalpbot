@@ -31,23 +31,23 @@ class Config:
     # Strategy params
     ema_fast: int = 9
     ema_slow: int = 21
-    ob_imbalance_threshold: float = 0.58
+    ob_imbalance_threshold: float = 0.62
     ob_depth_levels: int = 10
 
     # Risk management
-    position_size_usdt: float = 15.0
+    position_size_usdt: float = 25.0
     max_open_trades: int = 3
-    take_profit_pct: float = 0.003
-    stop_loss_pct: float = 0.0015
+    take_profit_pct: float = 0.008
+    stop_loss_pct: float = 0.003
     max_daily_loss_usdt: float = 20.0
     daily_profit_target_pct: float = 0.20
     max_drawdown_pct: float = 0.15
     futures_leverage: int = 5
 
     # Execution
-    order_type: str = "MARKET"           # MARKET esegue subito
+    order_type: str = "MARKET"
     limit_order_offset_pct: float = 0.0001
-    order_timeout_sec: int = 30          # Aumentato da 10 a 30
+    order_timeout_sec: int = 60
 
     # Timeframe
     kline_interval: str = "1m"
@@ -75,15 +75,15 @@ class Config:
             testnet=os.getenv("TESTNET", "true").lower() == "true",
 
             # Strategy
-            ob_imbalance_threshold=float(os.getenv("OB_IMBALANCE_THRESHOLD", "0.58")),
+            ob_imbalance_threshold=float(os.getenv("OB_IMBALANCE_THRESHOLD", "0.62")),
             ema_fast=int(os.getenv("EMA_FAST", "9")),
             ema_slow=int(os.getenv("EMA_SLOW", "21")),
 
             # Risk
-            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "15")),
+            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "25")),
             max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "3")),
-            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.003")),
-            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.0015")),
+            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.008")),
+            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.003")),
             max_daily_loss_usdt=float(os.getenv("MAX_DAILY_LOSS_USDT", "20")),
             daily_profit_target_pct=float(os.getenv("DAILY_PROFIT_TARGET_PCT", "0.20")),
             futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "5")),
@@ -99,6 +99,6 @@ class Config:
 
             # Execution
             order_type=os.getenv("ORDER_TYPE", "MARKET"),
-            order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "30")),
+            order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "60")),
             kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
         )
