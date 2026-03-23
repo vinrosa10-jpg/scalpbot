@@ -50,7 +50,7 @@ class BinanceClient:
             self._fut_ws    = self.FUTURES_WS
 
         self._session: Optional[aiohttp.ClientSession] = None
-        self._clock_offset: int = 0  # ms di offset rispetto a Binance
+        self._clock_offset: int = 0
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -71,12 +71,11 @@ class BinanceClient:
             logger.warning(f"Clock sync failed: {e}")
 
     def _get_binance_time(self) -> int:
-        """Timestamp corretto compensando il clock skew."""
         return int(time.time() * 1000) + self._clock_offset
 
     def _sign(self, params: dict) -> dict:
         params["timestamp"] = self._get_binance_time()
-        params["recvWindow"] = 20000  # 20 secondi di tolleranza
+        params["recvWindow"] = 20000
         query = urlencode(sorted(params.items()))
         signature = hmac.new(
             self.config.api_secret.encode(),
@@ -102,16 +101,15 @@ class BinanceClient:
         async with session.get(url, params=params, headers=self._headers()) as r:
             return await r.json()
 
-   async def _post(self, market: str, path: str, params: dict):
-    session = await self._get_session()
-    params = self._sign(params)
-    url = self._base_url(market) + path
-    # Invia params nel body come form data, non come query string
-    async with session.post(url, data=params, headers=self._headers()) as r:
-        data = await r.json()
-        if "code" in data and data["code"] != 200:
-            raise Exception(f"Binance error: {data}")
-        return data
+    async def _post(self, market: str, path: str, params: dict):
+        session = await self._get_session()
+        params = self._sign(params)
+        url = self._base_url(market) + path
+        async with session.post(url, data=params, headers=self._headers()) as r:
+            data = await r.json()
+            if "code" in data and data["code"] != 200:
+                raise Exception(f"Binance error: {data}")
+            return data
 
     async def _delete(self, market: str, path: str, params: dict):
         session = await self._get_session()
