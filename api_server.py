@@ -139,8 +139,6 @@ class APIServer:
             return web.json_response({"ok": False, "msg": "Comando sconosciuto"})
         except Exception as e:
             return web.json_response({"ok": False, "msg": str(e)}, status=500)
-```
 
-Poi aggiungi su **Render → Environment**:
-```
-ORDER_TYPE = MARKET
+
+
