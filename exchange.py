@@ -102,15 +102,16 @@ class BinanceClient:
         async with session.get(url, params=params, headers=self._headers()) as r:
             return await r.json()
 
-    async def _post(self, market: str, path: str, params: dict):
-        session = await self._get_session()
-        params = self._sign(params)
-        url = self._base_url(market) + path
-        async with session.post(url, params=params, headers=self._headers()) as r:
-            data = await r.json()
-            if "code" in data and data["code"] != 200:
-                raise Exception(f"Binance error: {data}")
-            return data
+   async def _post(self, market: str, path: str, params: dict):
+    session = await self._get_session()
+    params = self._sign(params)
+    url = self._base_url(market) + path
+    # Invia params nel body come form data, non come query string
+    async with session.post(url, data=params, headers=self._headers()) as r:
+        data = await r.json()
+        if "code" in data and data["code"] != 200:
+            raise Exception(f"Binance error: {data}")
+        return data
 
     async def _delete(self, market: str, path: str, params: dict):
         session = await self._get_session()
