@@ -61,7 +61,6 @@ class BinanceClient:
     async def sync_clock(self):
         """Sincronizza clock per spot e futures separatamente."""
         try:
-            # Spot clock
             url = self._spot_rest + "/api/v3/time"
             session = await self._get_session()
             async with session.get(url) as r:
@@ -72,7 +71,6 @@ class BinanceClient:
             logger.warning(f"Spot clock sync failed: {e}")
 
         try:
-            # Futures clock
             url = self._fut_rest + "/fapi/v1/time"
             session = await self._get_session()
             async with session.get(url) as r:
@@ -98,7 +96,6 @@ class BinanceClient:
         return self.config.api_secret
 
     def _sign(self, params: dict, market: str) -> str:
-        """Restituisce query string firmata."""
         params["timestamp"] = self._get_time(market)
         params["recvWindow"] = 20000
         query = urlencode(sorted(params.items()))
