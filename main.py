@@ -20,8 +20,9 @@ async def main():
     port = int(os.environ.get("PORT", 10000))
 
     logger.info("🚀 Avvio Binance Scalping Bot")
-    logger.info(f"🎯 Target: {config.daily_profit_target_pct*100:.0f}%")
+    logger.info(f"🎯 Target: disabilitato — bot perpetuo")
     logger.info(f"🌐 Porta: {port}")
+    logger.info(f"📈 Spot: {'✅' if config.enable_spot else '❌'} | Futures: {'✅' if config.enable_futures else '❌'}")
 
     bot = ScalpingBot(config)
     api = APIServer(bot, config)
@@ -41,7 +42,7 @@ async def main():
 
     def handle_sigterm():
         uptime = time.time() - start_time
-        if uptime < 90:
+        if uptime < 180:
             logger.warning(f"⚠️ SIGTERM ignorato (uptime {uptime:.1f}s — deploy rolling)")
             return
         logger.warning("🛑 SIGTERM ricevuto — shutdown...")
@@ -56,6 +57,7 @@ async def main():
     def on_bot_error(task):
         if not task.cancelled() and task.exception():
             logger.error(f"💥 Bot crashato: {task.exception()}")
+            logger.info("🔄 API server rimane attivo")
 
     bot_task.add_done_callback(on_bot_error)
 
