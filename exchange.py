@@ -31,7 +31,7 @@ class BinanceClient:
     SPOT_REST_TEST    = "https://testnet.binance.vision"
     FUTURES_REST_TEST = "https://testnet.binancefuture.com"
     SPOT_WS_TEST      = "wss://stream.testnet.binance.vision/stream"
-    FUTURES_WS_TEST   = "wss://testnet.binancefuture.com/stream"
+    FUTURES_WS_TEST   = "wss://stream.testnet.binance.vision/stream"
 
     def __init__(self, config: Config):
         self.config = config
@@ -200,25 +200,20 @@ class DataFeed:
         self._running = True
         interval = self.config.kline_interval
 
-        markets = ["SPOT"]
-        if self.config.enable_futures:
-            markets.append("FUTURES")
+        # Usa sempre SPOT WebSocket per i dati di mercato
+        # Gli ordini futures vengono eseguiti separatamente sul server futures
+        streams = []
+        for pair in pairs:
+            p = pair.lower()
+            streams.append(f"{p}@kline_{interval}")
+            streams.append(f"{p}@depth10@100ms")
+            streams.append(f"{p}@trade")
 
-        for market in markets:
-            ws_base = self.client._spot_ws if market == "SPOT" else self.client._fut_ws
-
-            streams = []
-            for pair in pairs:
-                p = pair.lower()
-                streams.append(f"{p}@kline_{interval}")
-                streams.append(f"{p}@depth10@100ms")
-                streams.append(f"{p}@trade")
-
-            url = ws_base + "?streams=" + "/".join(streams)
-            task = asyncio.create_task(
-                self._listen(url, market, on_kline, on_orderbook, on_trade)
-            )
-            self._tasks.append(task)
+        url = self.client._spot_ws + "?streams=" + "/".join(streams)
+        task = asyncio.create_task(
+            self._listen(url, "SPOT", on_kline, on_orderbook, on_trade)
+        )
+        self._tasks.append(task)
 
         logger.info(f"📡 WebSocket streams started for {len(pairs)} pairs")
 
