@@ -31,7 +31,7 @@ class BinanceClient:
     SPOT_REST_TEST    = "https://testnet.binance.vision"
     FUTURES_REST_TEST = "https://testnet.binancefuture.com"
     SPOT_WS_TEST      = "wss://stream.testnet.binance.vision/stream"
-    FUTURES_WS_TEST   = "wss://stream.testnet.binancefuture.com/stream"
+    FUTURES_WS_TEST = "wss://fstream.testnet.binancefuture.com/stream"
 
     def __init__(self, config: Config):
         self.config = config
