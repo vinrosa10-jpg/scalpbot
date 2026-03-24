@@ -26,22 +26,30 @@ class Trade:
     status: str = "OPEN"
 
 
-# Step size per coppia — LOT_SIZE filter di Binance testnet
+# Step size per coppia — LOT_SIZE filter di Binance
 LOT_STEP = {
-    "BTCUSDT":  0.00001,
-    "ETHUSDT":  0.0001,
-    "BNBUSDT":  0.001,
-    "SOLUSDT":  0.01,
-    "XRPUSDT":  0.1,
-    "DOGEUSDT": 1.0,
-    "ADAUSDT":  1.0,
+    # SPOT
+    "BTCUSDT":    0.00001,
+    "ETHUSDT":    0.0001,
+    "BNBUSDT":    0.001,
+    "SOLUSDT":    0.01,
+    "XRPUSDT":    0.1,
+    "DOGEUSDT":   1.0,
+    "ADAUSDT":    1.0,
+    # FUTURES — step size diverso
+    "BTCUSDT_F":  0.001,
+    "ETHUSDT_F":  0.001,
+    "BNBUSDT_F":  0.01,
+    "SOLUSDT_F":  0.1,
+    "XRPUSDT_F":  1.0,
 }
 DEFAULT_STEP = 0.001
 
 
-def round_lot(qty: float, pair: str) -> float:
-    """Arrotonda qty al step size corretto per evitare LOT_SIZE filter."""
-    step = LOT_STEP.get(pair, DEFAULT_STEP)
+def round_lot(qty: float, pair: str, market: str = "SPOT") -> float:
+    """Arrotonda qty al step size corretto per coppia e mercato."""
+    key = pair + ("_F" if market == "FUTURES" else "")
+    step = LOT_STEP.get(key, LOT_STEP.get(pair, DEFAULT_STEP))
     qty = math.floor(qty / step) * step
     precision = max(0, int(round(-math.log10(step))))
     return round(qty, precision)
@@ -62,7 +70,6 @@ class OrderManager:
         if key in self.trades:
             return
 
-        # Get current price
         ticker = await self.client.get_ticker(pair, market)
         if not ticker:
             return
@@ -75,10 +82,10 @@ class OrderManager:
             return
 
         qty = self.risk_manager.calculate_position_size(price, market)
-        qty = round_lot(qty, pair)
+        qty = round_lot(qty, pair, market)
 
         if qty <= 0:
-            logger.warning(f"⚠️ Qty troppo piccola per {pair}: {qty} — posizione saltata")
+            logger.warning(f"⚠️ Qty troppo piccola per {pair} [{market}]: {qty} — saltato")
             return
 
         tp, sl = self.risk_manager.calculate_tp_sl(price, signal)
@@ -132,7 +139,7 @@ class OrderManager:
                 current_price = float(ticker["price"])
                 elapsed = time.time() - trade.opened_at
 
-                # Timeout: cancel unfilled limit orders
+                # Timeout
                 if elapsed > self.config.order_timeout_sec and trade.status == "OPEN":
                     logger.warning(f"⏱️  Order timeout {trade.pair} [{trade.market}] — cancelling")
                     await self.client.cancel_order(trade.pair, trade.order_id, trade.market)
