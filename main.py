@@ -1,65 +1,99 @@
-#!/usr/bin/env python3
+import os
 import asyncio
 import signal
-import sys
-import os
-import time
+from aiohttp import web
 from loguru import logger
-from config import Config
-from bot import ScalpingBot
-from api_server import APIServer
 
-def setup_logging():
-    logger.remove()
-    logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}", level="INFO")
-    os.makedirs("logs", exist_ok=True)
+from config import Config
+from exchange import BinanceClient, DataFeed
+
+
+class BotApp:
+    def __init__(self):
+        self.config = Config.load()
+        self.client = BinanceClient(self.config)
+        self.feed = DataFeed(self.client, self.config)
+        self._stop_event = asyncio.Event()
+        self._runner = None
+
+    async def on_kline(self, pair, data):
+        pass
+
+    async def on_orderbook(self, pair, data):
+        pass
+
+    async def on_trade(self, pair, data):
+        pass
+
+    async def start_bot(self):
+        logger.info("🚀 Starting bot...")
+        await self.client.sync_clock()
+
+        pairs = self.config.pairs
+        await self.client.set_leverage_all(pairs, self.config.futures_leverage)
+        await self.feed.start(pairs, self.on_kline, self.on_orderbook, self.on_trade)
+
+    async def stop_bot(self):
+        logger.warning("🛑 Stopping bot...")
+        try:
+            await self.feed.stop()
+        except Exception as e:
+            logger.warning(f"Feed stop warning: {e}")
+
+        try:
+            await self.client.close()
+        except Exception as e:
+            logger.warning(f"Client close warning: {e}")
+
+        logger.info("✅ Bot stopped cleanly.")
+
+    async def health(self, request):
+        return web.Response(text="OK")
+
+    async def start_http_server(self):
+        app = web.Application()
+        app.router.add_get("/", self.health)
+        app.router.add_get("/health", self.health)
+
+        self._runner = web.AppRunner(app)
+        await self._runner.setup()
+
+        port = int(os.getenv("PORT", "10000"))
+        site = web.TCPSite(self._runner, "0.0.0.0", port)
+        await site.start()
+
+        logger.info(f"🌐 Health server listening on 0.0.0.0:{port}")
+
+    async def stop_http_server(self):
+        if self._runner:
+            await self._runner.cleanup()
+
+    def _handle_signal(self):
+        logger.warning("🛑 SIGTERM ricevuto — shutdown...")
+        self._stop_event.set()
+
+    async def run(self):
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, self._handle_signal)
+            except NotImplementedError:
+                pass
+
+        await self.start_http_server()
+        await self.start_bot()
+
+        await self._stop_event.wait()
+
+        logger.warning("🛑 Shutdown in corso...")
+        await self.stop_bot()
+        await self.stop_http_server()
+
 
 async def main():
-    setup_logging()
-    config = Config.load()
-    port = int(os.environ.get("PORT", 10000))
+    app = BotApp()
+    await app.run()
 
-    logger.info("🚀 Avvio Binance Scalping Bot")
-    logger.info(f"🎯 Target: {config.daily_profit_target_pct*100:.0f}%")
-    logger.info(f"🌐 Porta: {port}")
-
-    bot = ScalpingBot(config)
-    api = APIServer(bot, config)
-    api.port = port
-
-    await api.start()
-    logger.info(f"✅ API Server attivo su 0.0.0.0:{port}")
-
-    stop_event = asyncio.Event()
-    start_time = time.time()
-
-    async def shutdown():
-        logger.warning("🛑 Shutdown in corso...")
-        stop_event.set()
-        await bot.stop()
-        await api.stop()
-
-    def handle_sigterm():
-        uptime = time.time() - start_time
-        if uptime < 90:
-            logger.warning(f"⚠️ SIGTERM ignorato (uptime {uptime:.1f}s — deploy rolling)")
-            return
-        logger.warning("🛑 SIGTERM ricevuto — shutdown...")
-        asyncio.create_task(shutdown())
-
-    loop = asyncio.get_running_loop()
-    loop.add_signal_handler(signal.SIGINT,  lambda: asyncio.create_task(shutdown()))
-    loop.add_signal_handler(signal.SIGTERM, handle_sigterm)
-
-    bot_task = asyncio.create_task(bot.start())
-
-    def on_bot_error(task):
-        if not task.cancelled() and task.exception():
-            logger.error(f"💥 Bot crashato: {task.exception()}")
-
-    bot_task.add_done_callback(on_bot_error)
-
-    await stop_event.wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
