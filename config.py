@@ -6,13 +6,21 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 from dotenv import load_dotenv
+
 load_dotenv()
+
 
 @dataclass
 class Config:
-    # API Keys
+    # API Keys (legacy fallback)
     api_key: str = ""
     api_secret: str = ""
+
+    # Separate API keys
+    spot_api_key: str = ""
+    spot_api_secret: str = ""
+    futures_api_key: str = ""
+    futures_api_secret: str = ""
 
     # Markets
     enable_spot: bool = True
@@ -67,9 +75,27 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
+        # Legacy fallback
+        api_key = os.getenv("BINANCE_API_KEY", "")
+        api_secret = os.getenv("BINANCE_API_SECRET", "")
+
+        # Separate credentials
+        spot_api_key = os.getenv("BINANCE_SPOT_API_KEY", "") or api_key
+        spot_api_secret = os.getenv("BINANCE_SPOT_API_SECRET", "") or api_secret
+        futures_api_key = os.getenv("BINANCE_FUTURES_API_KEY", "") or api_key
+        futures_api_secret = os.getenv("BINANCE_FUTURES_API_SECRET", "") or api_secret
+
         return cls(
-            api_key=os.getenv("BINANCE_API_KEY", ""),
-            api_secret=os.getenv("BINANCE_API_SECRET", ""),
+            # legacy
+            api_key=api_key,
+            api_secret=api_secret,
+
+            # separated keys
+            spot_api_key=spot_api_key,
+            spot_api_secret=spot_api_secret,
+            futures_api_key=futures_api_key,
+            futures_api_secret=futures_api_secret,
+
             enable_spot=os.getenv("ENABLE_SPOT", "true").lower() == "true",
             enable_futures=os.getenv("ENABLE_FUTURES", "false").lower() == "true",
             testnet=os.getenv("TESTNET", "true").lower() == "true",
@@ -92,14 +118,17 @@ class Config:
             starting_capital_usdt=float(os.getenv("STARTING_CAPITAL_USDT", "100")),
             position_pct_of_capital=float(os.getenv("POSITION_PCT_OF_CAPITAL", "0.12")),
 
-            # Pairs
+            # Pair selector
             auto_select_pairs=os.getenv("AUTO_SELECT_PAIRS", "true").lower() == "true",
             max_pairs=int(os.getenv("MAX_PAIRS", "3")),
-            pairs=os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT").split(","),
+            min_volume_usdt=float(os.getenv("MIN_VOLUME_USDT", "50000000")),
+            min_volatility_pct=float(os.getenv("MIN_VOLATILITY_PCT", "1.0")),
+
+            # Pairs
+            pairs=[p.strip().upper() for p in os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT").split(",") if p.strip()],
 
             # Execution
             order_type=os.getenv("ORDER_TYPE", "MARKET"),
             order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "60")),
             kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
         )
-
