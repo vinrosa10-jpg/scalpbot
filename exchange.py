@@ -26,7 +26,12 @@ class BinanceClient:
     SPOT_REST     = "https://api.binance.com"
     FUTURES_REST  = "https://fapi.binance.com"
     SPOT_WS       = "wss://stream.binance.com:9443/stream"
- FUTURES_WS_TEST = "wss://testnet.binancefuture.com/stream"
+    FUTURES_WS_TEST = "wss://testnet.binancefuture.com/stream"
+
+      SPOT_REST     = "https://api.binance.com"
+     FUTURES_REST  = "https://fapi.binance.com"
+     SPOT_WS       = "wss://stream.binance.com:9443/stream"
+      FUTURES_WS_TEST = "wss://testnet.binancefuture.com/stream"
 
    
 
