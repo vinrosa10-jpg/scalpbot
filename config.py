@@ -15,7 +15,7 @@ class Config:
     futures_api_secret: str = ""
     enable_spot: bool = True
     enable_futures: bool = True
-    auto_select_pairs: bool = True
+    auto_select_pairs: bool = False
     max_pairs: int = 3
     min_volume_usdt: float = 50_000_000
     min_volatility_pct: float = 1.0
@@ -25,17 +25,17 @@ class Config:
     ob_imbalance_threshold: float = 0.62
     ob_depth_levels: int = 10
     position_size_usdt: float = 25.0
-    futures_position_size_usdt: float = 100.0  # Minimo Binance futures
+    futures_position_size_usdt: float = 100.0
     max_open_trades: int = 3
-    take_profit_pct: float = 0.008
-    stop_loss_pct: float = 0.003
+    take_profit_pct: float = 0.004        # Abbassato da 0.008
+    stop_loss_pct: float = 0.002          # Abbassato da 0.003
     max_daily_loss_usdt: float = 20.0
     daily_profit_target_pct: float = 99.0
     max_drawdown_pct: float = 0.15
-    futures_leverage: int = 5
+    futures_leverage: int = 3             # Ridotto da 5
     order_type: str = "MARKET"
     limit_order_offset_pct: float = 0.0001
-    order_timeout_sec: int = 60
+    order_timeout_sec: int = 120          # Aumentato da 60
     kline_interval: str = "1m"
     starting_capital_usdt: float = 100.0
     position_pct_of_capital: float = 0.12
@@ -61,17 +61,17 @@ class Config:
             position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "25")),
             futures_position_size_usdt=float(os.getenv("FUTURES_POSITION_SIZE_USDT", "100")),
             max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "3")),
-            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.008")),
-            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.003")),
+            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.004")),
+            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.002")),
             max_daily_loss_usdt=float(os.getenv("MAX_DAILY_LOSS_USDT", "20")),
             daily_profit_target_pct=float(os.getenv("DAILY_PROFIT_TARGET_PCT", "99.0")),
-            futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "5")),
+            futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "3")),
             starting_capital_usdt=float(os.getenv("STARTING_CAPITAL_USDT", "100")),
             position_pct_of_capital=float(os.getenv("POSITION_PCT_OF_CAPITAL", "0.12")),
             auto_select_pairs=os.getenv("AUTO_SELECT_PAIRS", "false").lower() == "true",
             max_pairs=int(os.getenv("MAX_PAIRS", "3")),
             pairs=os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT").split(","),
             order_type=os.getenv("ORDER_TYPE", "MARKET"),
-            order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "60")),
+            order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "120")),
             kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
         )
