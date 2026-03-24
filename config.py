@@ -25,6 +25,7 @@ class Config:
     ob_imbalance_threshold: float = 0.62
     ob_depth_levels: int = 10
     position_size_usdt: float = 25.0
+    futures_position_size_usdt: float = 100.0  # Minimo Binance futures
     max_open_trades: int = 3
     take_profit_pct: float = 0.008
     stop_loss_pct: float = 0.003
@@ -58,6 +59,7 @@ class Config:
             ema_fast=int(os.getenv("EMA_FAST", "9")),
             ema_slow=int(os.getenv("EMA_SLOW", "21")),
             position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "25")),
+            futures_position_size_usdt=float(os.getenv("FUTURES_POSITION_SIZE_USDT", "100")),
             max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "3")),
             take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.008")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.003")),
@@ -66,7 +68,7 @@ class Config:
             futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "5")),
             starting_capital_usdt=float(os.getenv("STARTING_CAPITAL_USDT", "100")),
             position_pct_of_capital=float(os.getenv("POSITION_PCT_OF_CAPITAL", "0.12")),
-            auto_select_pairs=os.getenv("AUTO_SELECT_PAIRS", "true").lower() == "true",
+            auto_select_pairs=os.getenv("AUTO_SELECT_PAIRS", "false").lower() == "true",
             max_pairs=int(os.getenv("MAX_PAIRS", "3")),
             pairs=os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT").split(","),
             order_type=os.getenv("ORDER_TYPE", "MARKET"),
