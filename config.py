@@ -6,21 +6,20 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 from dotenv import load_dotenv
-
 load_dotenv()
-
 
 @dataclass
 class Config:
-    # API Keys (ONLY SEPARATE)
-    spot_api_key: str = ""
-    spot_api_secret: str = ""
+    # API Keys Spot
+    api_key: str = ""
+    api_secret: str = ""
+    # API Keys Futures
     futures_api_key: str = ""
     futures_api_secret: str = ""
 
     # Markets
     enable_spot: bool = True
-    enable_futures: bool = False
+    enable_futures: bool = True
 
     # Pair selector
     auto_select_pairs: bool = True
@@ -72,41 +71,5 @@ class Config:
     @classmethod
     def load(cls) -> "Config":
         return cls(
-            # 🔥 SOLO QUESTE
-            spot_api_key=os.getenv("BINANCE_SPOT_API_KEY", ""),
-            spot_api_secret=os.getenv("BINANCE_SPOT_API_SECRET", ""),
-            futures_api_key=os.getenv("BINANCE_FUTURES_API_KEY", ""),
-            futures_api_secret=os.getenv("BINANCE_FUTURES_API_SECRET", ""),
-
-            enable_spot=os.getenv("ENABLE_SPOT", "true").lower() == "true",
-            enable_futures=os.getenv("ENABLE_FUTURES", "false").lower() == "true",
-            testnet=os.getenv("TESTNET", "true").lower() == "true",
-
-            # Strategy
-            ob_imbalance_threshold=float(os.getenv("OB_IMBALANCE_THRESHOLD", "0.62")),
-            ema_fast=int(os.getenv("EMA_FAST", "9")),
-            ema_slow=int(os.getenv("EMA_SLOW", "21")),
-
-            # Risk
-            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "25")),
-            max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "3")),
-            take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.008")),
-            stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.003")),
-            max_daily_loss_usdt=float(os.getenv("MAX_DAILY_LOSS_USDT", "20")),
-            daily_profit_target_pct=float(os.getenv("DAILY_PROFIT_TARGET_PCT", "99.0")),
-            futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "5")),
-
-            # Capital
-            starting_capital_usdt=float(os.getenv("STARTING_CAPITAL_USDT", "100")),
-            position_pct_of_capital=float(os.getenv("POSITION_PCT_OF_CAPITAL", "0.12")),
-
-            # Pairs
-            auto_select_pairs=os.getenv("AUTO_SELECT_PAIRS", "true").lower() == "true",
-            max_pairs=int(os.getenv("MAX_PAIRS", "3")),
-            pairs=[p.strip().upper() for p in os.getenv("PAIRS", "BTCUSDT,ETHUSDT,BNBUSDT").split(",") if p.strip()],
-
-            # Execution
-            order_type=os.getenv("ORDER_TYPE", "MARKET"),
-            order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "60")),
-            kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
-        )
+            # Spot keys
+            api_key=os.getenv("BINANCE_SPOT_A
