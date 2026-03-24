@@ -1,7 +1,7 @@
 """
 Binance Exchange Client
 Handles REST API calls and WebSocket streams for Spot and Futures.
-Supports separate API keys/secrets for SPOT and FUTURES.
+Uses separate API keys/secrets for SPOT and FUTURES.
 """
 
 import asyncio
@@ -34,7 +34,7 @@ class BinanceClient:
     SPOT_REST_TEST = "https://testnet.binance.vision"
     FUTURES_REST_TEST = "https://testnet.binancefuture.com"
     SPOT_WS_TEST = "wss://stream.testnet.binance.vision/stream"
-    FUTURES_WS_TEST = "wss://stream.binancefuture.com/ws"  # test futures ws
+    FUTURES_WS_TEST = "wss://stream.binancefuture.com/stream"
 
     def __init__(self, config: Config):
         self.config = config
@@ -67,18 +67,14 @@ class BinanceClient:
         return market
 
     def _get_credentials(self, market: str) -> Tuple[str, str]:
-        """
-        Restituisce la coppia (api_key, api_secret) in base al mercato.
-        Fallback alle vecchie config.api_key / config.api_secret se i campi separati non esistono.
-        """
         market = self._normalize_market(market)
 
         if market == "SPOT":
-            api_key = getattr(self.config, "spot_api_key", None) or getattr(self.config, "api_key", None)
-            api_secret = getattr(self.config, "spot_api_secret", None) or getattr(self.config, "api_secret", None)
+            api_key = self.config.spot_api_key
+            api_secret = self.config.spot_api_secret
         else:
-            api_key = getattr(self.config, "futures_api_key", None) or getattr(self.config, "api_key", None)
-            api_secret = getattr(self.config, "futures_api_secret", None) or getattr(self.config, "api_secret", None)
+            api_key = self.config.futures_api_key
+            api_secret = self.config.futures_api_secret
 
         if not api_key or not api_secret:
             raise ValueError(f"Missing API credentials for market {market}")
@@ -86,14 +82,16 @@ class BinanceClient:
         return api_key, api_secret
 
     async def sync_clock(self):
-        """Sincronizza il clock con Binance."""
+        """Sincronizza il clock con Binance sul mercato attivo."""
         try:
-            path = "/api/v3/time"
-            data = await self._get("SPOT", path)
+            market = "FUTURES" if self.config.enable_futures else "SPOT"
+            path = "/fapi/v1/time" if market == "FUTURES" else "/api/v3/time"
+
+            data = await self._get(market, path)
             server_time = data["serverTime"]
             local_time = int(time.time() * 1000)
             self._clock_offset = server_time - local_time
-            logger.info(f"🕐 Clock sync: offset={self._clock_offset}ms")
+            logger.info(f"🕐 Clock sync [{market}]: offset={self._clock_offset}ms")
         except Exception as e:
             logger.warning(f"Clock sync failed: {e}")
 
@@ -101,7 +99,6 @@ class BinanceClient:
         return int(time.time() * 1000) + self._clock_offset
 
     def _sign(self, market: str, params: dict) -> str:
-        """Restituisce query string firmata pronta per l'invio."""
         _, api_secret = self._get_credentials(market)
 
         signed_params = dict(params)
@@ -128,11 +125,9 @@ class BinanceClient:
     async def _handle_response(self, response: aiohttp.ClientResponse):
         data = await response.json()
 
-        # Binance error standard
         if isinstance(data, dict) and "code" in data and response.status >= 400:
             raise Exception(f"Binance error [{response.status}]: {data}")
 
-        # Alcuni endpoint possono restituire code anche con HTTP 200
         if isinstance(data, dict) and "code" in data and isinstance(data["code"], int) and data["code"] < 0:
             raise Exception(f"Binance error: {data}")
 
@@ -149,7 +144,6 @@ class BinanceClient:
             async with session.get(url, headers=self._headers(market)) as r:
                 return await self._handle_response(r)
         else:
-            # per endpoint pubblici gli header non servono
             async with session.get(url, params=params) as r:
                 return await self._handle_response(r)
 
@@ -218,6 +212,10 @@ class BinanceClient:
             logger.error(f"Cancel order error [{market} {pair} #{order_id}]: {e}")
 
     async def set_leverage_all(self, pairs: List[str], leverage: int):
+        if not self.config.enable_futures:
+            logger.info("⚠️ Futures disabled, leverage setup skipped.")
+            return
+
         for pair in pairs:
             try:
                 await self._post("FUTURES", "/fapi/v1/leverage", {
@@ -246,7 +244,16 @@ class DataFeed:
         self._running = True
         interval = self.config.kline_interval
 
-        for market in (["SPOT"] if self.client.testnet else ["SPOT", "FUTURES"]):
+        markets = []
+        if self.config.enable_spot:
+            markets.append("SPOT")
+        if self.config.enable_futures:
+            markets.append("FUTURES")
+
+        if not markets:
+            raise ValueError("No markets enabled. Set ENABLE_SPOT or ENABLE_FUTURES to true.")
+
+        for market in markets:
             ws_base = self.client._spot_ws if market == "SPOT" else self.client._fut_ws
 
             streams = []
@@ -256,19 +263,14 @@ class DataFeed:
                 streams.append(f"{p}@depth10@100ms")
                 streams.append(f"{p}@trade")
 
-            if self.client.testnet and market == "FUTURES":
-                # futures testnet ws spesso usa /ws/<stream> più che /stream?streams=
-                # qui manteniamo compatibilità minima usando stream singolo concatenato se serve
-                logger.warning("FUTURES testnet websocket may require endpoint-specific adjustments.")
-
-            url = ws_base + "?streams=" + "/".join(streams) if "/stream" in ws_base else ws_base
+            url = ws_base + "?streams=" + "/".join(streams)
 
             task = asyncio.create_task(
                 self._listen(url, market, on_kline, on_orderbook, on_trade)
             )
             self._tasks.append(task)
 
-        logger.info(f"📡 WebSocket streams started for {len(pairs)} pairs")
+        logger.info(f"📡 WebSocket streams started for {len(pairs)} pairs on: {', '.join(markets)}")
 
     async def _listen(self, url, market, on_kline, on_orderbook, on_trade):
         while self._running:
@@ -287,11 +289,9 @@ class DataFeed:
                         if "@kline" in stream:
                             pair = data["s"]
                             await on_kline(pair, data)
-
                         elif "@depth" in stream:
                             pair = stream.split("@")[0].upper()
                             await on_orderbook(pair, data)
-
                         elif "@trade" in stream:
                             pair = data["s"]
                             await on_trade(pair, data)
