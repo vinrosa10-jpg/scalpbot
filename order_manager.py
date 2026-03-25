@@ -59,6 +59,18 @@ class OrderManager:
         self.risk_manager = risk_manager
         self.config = config
         self.trades: Dict[str, Trade] = {}
+        self.api_server = None  # Impostato da bot.py
+
+    def _log(self, type_: str, msg: str):
+        """Log su console e app mobile."""
+        if type_ == 'win':
+            logger.success(msg)
+        elif type_ == 'loss':
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+        if self.api_server:
+            self.api_server.add_log(type_, msg)
 
     def _trade_key(self, pair: str, market: str) -> str:
         return f"{pair}_{market}"
@@ -94,7 +106,7 @@ class OrderManager:
 
         limit_price = round(limit_price, 2)
 
-        logger.info(f"📥 Opening {signal} {pair} [{market}] | Price: {price} | Qty: {qty} | TP: {tp} | SL: {sl}")
+        self._log('info', f'📥 {signal} {pair} | Entry: {limit_price} | TP: {round(tp,2)} | SL: {round(sl,2)}')
 
         try:
             order = await self.client.place_order(
@@ -120,10 +132,10 @@ class OrderManager:
 
             self.trades[key] = trade
             self.risk_manager.register_trade_open(pair)
-            logger.info(f"✅ Ordine aperto {pair} [{market}] | ID: {order_id}")
+            self._log('info', f'✅ Aperto {pair} [{market}] ID: {order_id}')
 
         except Exception as e:
-            logger.error(f"Order error {pair} [{market}]: {e}")
+            self._log('warn', f'⚠️ Errore ordine {pair}: {e}')
 
     async def monitor_open_orders(self):
         for key, trade in list(self.trades.items()):
@@ -164,8 +176,10 @@ class OrderManager:
         net_pnl = pnl - fees
         duration = time.time() - trade.opened_at
 
+        # Log su console
         logger.info(f"🔒 Close [{reason}] {trade.pair} [{trade.market}] | Net PnL: {net_pnl:+.4f} USDT")
 
+        # Chiudi ordine su exchange
         try:
             close_side = "SELL" if trade.side == "LONG" else "BUY"
             await self.client.place_order(
@@ -192,7 +206,6 @@ class OrderManager:
                 reason=reason,
                 duration_sec=round(duration, 1)
             )
-            # Salva equity curve
             rm = self.risk_manager
             db.save_equity(
                 equity=rm.daily_start_capital + rm.daily_pnl,
@@ -200,6 +213,16 @@ class OrderManager:
             )
         except Exception as e:
             logger.error(f"DB save error: {e}")
+
+        # Log su app mobile con dettaglio completo
+        if self.api_server:
+            emoji = '✅' if net_pnl > 0 else '❌'
+            type_ = 'win' if net_pnl > 0 else 'loss'
+            reason_emoji = {'TP': '🎯', 'SL': '🛑', 'TIMEOUT': '⏱️', 'EMERGENCY': '🚨'}.get(reason, '🔒')
+            self.api_server.add_log(
+                type_,
+                f'{emoji} {trade.pair} {trade.side} {reason_emoji}[{reason}] {net_pnl:+.4f}$'
+            )
 
         self.trades.pop(key, None)
         self.risk_manager.register_trade_close(trade.pair, net_pnl)
