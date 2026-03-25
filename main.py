@@ -48,6 +48,7 @@ async def main():
     bot = ScalpingBot(config)
     api = APIServer(bot, config)
     api.port = port
+    bot.set_api_server(api)
 
     await api.start()
     logger.info(f"✅ API Server attivo su 0.0.0.0:{port}")
