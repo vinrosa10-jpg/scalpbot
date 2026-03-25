@@ -2,8 +2,9 @@
 Risk Manager - Protects capital with hard rules.
 """
 
+import time
 from datetime import date
-from typing import Set
+from typing import Set, Dict
 from loguru import logger
 from config import Config
 
@@ -18,6 +19,8 @@ class RiskManager:
         self._target_hit: bool = False
         self.winning_trades: int = 0
         self.losing_trades: int = 0
+        self._cooldowns: Dict[str, float] = {}  # pair -> timestamp ultimo trade
+        self._consecutive_losses: Dict[str, int] = {}  # pair -> perdite consecutive
 
     def _reset_daily_if_needed(self):
         today = date.today()
@@ -28,6 +31,8 @@ class RiskManager:
             self._target_hit = False
             self.winning_trades = 0
             self.losing_trades = 0
+            self._cooldowns = {}
+            self._consecutive_losses = {}
             if hasattr(self, '_eod_manager'):
                 self._eod_manager.reset_for_new_day()
 
@@ -37,13 +42,31 @@ class RiskManager:
     def can_open_trade(self, pair: str) -> bool:
         self._reset_daily_if_needed()
 
+        # Max trade aperti contemporaneamente
         if len(self.open_pairs) >= self.config.max_open_trades:
             return False
 
+        # Trade già aperto su questa coppia
         if pair in self.open_pairs:
             return False
 
+        # Limite perdita giornaliera
         if self.is_daily_limit_hit():
+            return False
+
+        # Cooldown dopo timeout/perdita
+        cooldown_until = self._cooldowns.get(pair, 0)
+        if time.time() < cooldown_until:
+            remaining = int(cooldown_until - time.time())
+            logger.debug(f"⏳ {pair} in cooldown — {remaining}s rimanenti")
+            return False
+
+        # Stop dopo 3 perdite consecutive sulla stessa coppia
+        if self._consecutive_losses.get(pair, 0) >= 3:
+            logger.warning(f"🛑 {pair} bloccato — 3 perdite consecutive")
+            # Reset dopo 10 minuti
+            self._cooldowns[pair] = time.time() + 600
+            self._consecutive_losses[pair] = 0
             return False
 
         return True
@@ -63,10 +86,7 @@ class RiskManager:
         if self.daily_pnl >= target_usdt:
             self._target_hit = True
             pct = self.daily_pnl / self.daily_start_capital * 100
-            logger.success(
-                f"🎯 TARGET RAGGIUNTO! "
-                f"+{self.daily_pnl:.2f} USDT ({pct:.1f}%)"
-            )
+            logger.success(f"🎯 TARGET RAGGIUNTO! +{self.daily_pnl:.2f} USDT ({pct:.1f}%)")
             return True
         return False
 
@@ -77,13 +97,29 @@ class RiskManager:
     def register_trade_open(self, pair: str):
         self.open_pairs.add(pair)
 
-    def register_trade_close(self, pair: str, pnl_usdt: float):
+    def register_trade_close(self, pair: str, pnl_usdt: float, reason: str = ""):
         self.open_pairs.discard(pair)
         self.daily_pnl += pnl_usdt
+
         if pnl_usdt >= 0:
             self.winning_trades += 1
+            self._consecutive_losses[pair] = 0
+            # Nessun cooldown su vincita
         else:
             self.losing_trades += 1
+            self._consecutive_losses[pair] = self._consecutive_losses.get(pair, 0) + 1
+
+            # Cooldown in base al motivo della chiusura
+            if reason == "TIMEOUT":
+                cooldown = 180  # 3 minuti dopo timeout
+            elif reason == "SL":
+                cooldown = 120  # 2 minuti dopo stop loss
+            else:
+                cooldown = 60   # 1 minuto negli altri casi
+
+            self._cooldowns[pair] = time.time() + cooldown
+            logger.info(f"⏳ Cooldown {pair}: {cooldown}s")
+
         emoji = "✅" if pnl_usdt >= 0 else "❌"
         target_usdt = self.daily_start_capital * self.config.daily_profit_target_pct
         progress_pct = (self.daily_pnl / target_usdt * 100) if target_usdt > 0 else 0
@@ -95,24 +131,20 @@ class RiskManager:
         )
 
     def calculate_position_size(self, price: float, market: str) -> float:
-        """Calcola quantità in base al mercato."""
         if market == "FUTURES":
             usdt = getattr(self.config, 'futures_position_size_usdt', 100.0)
             usdt *= self.config.futures_leverage
         else:
             usdt = self.config.position_size_usdt
-        qty = usdt / price
-        return qty
+        return usdt / price
 
     def calculate_tp_sl(self, entry_price: float, side: str):
         tp_pct = self.config.take_profit_pct
         sl_pct = self.config.stop_loss_pct
-
         if side == "LONG":
             tp = entry_price * (1 + tp_pct)
             sl = entry_price * (1 - sl_pct)
         else:
             tp = entry_price * (1 - tp_pct)
             sl = entry_price * (1 + sl_pct)
-
         return round(tp, 8), round(sl, 8)
