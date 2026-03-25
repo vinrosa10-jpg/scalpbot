@@ -665,7 +665,21 @@ else{document.getElementById(‘lerr’).textContent=‘Credenziali non valide�
 function logout(){localStorage.removeItem(‘sbu’);S.user=null;if(poll)clearInterval(poll);if(btcWs)btcWs.close();document.getElementById(‘app’).classList.add(‘hidden’);document.getElementById(‘loginScreen’).classList.remove(‘hidden’);document.getElementById(‘lu’).value=’’;document.getElementById(‘lp’).value=’’;}
 document.getElementById(‘lp’).addEventListener(‘keydown’,e=>{if(e.key===‘Enter’)doLogin();});
 function init(){loadS();addLog(‘info’,‘ScalpBot Pro avviato’);updateUI();startPoll();startBtcChart();}
-function autoLogin(){var u=localStorage.getItem(‘sbu’);if(u&&USERS[u]){S.user=u;document.getElementById(‘loginScreen’).classList.add(‘hidden’);document.getElementById(‘app’).classList.remove(‘hidden’);document.getElementById(‘huser’).textContent=u.toUpperCase();if(u===MASTER_USER)document.getElementById(‘masterSection’).style.display=‘block’;init();}}
+function autoLogin(){
+try{
+var u=localStorage.getItem(‘sbu’);
+if(u&&USERS[u]){
+S.user=u;
+document.getElementById(‘loginScreen’).classList.add(‘hidden’);
+document.getElementById(‘app’).classList.remove(‘hidden’);
+document.getElementById(‘huser’).textContent=u.toUpperCase();
+if(u===MASTER_USER)document.getElementById(‘masterSection’).style.display=‘block’;
+init();
+}else{
+localStorage.removeItem(‘sbu’);
+}
+}catch(e){localStorage.removeItem(‘sbu’);}
+}
 function goP(n,i){document.querySelectorAll(’.page’).forEach(p=>p.classList.remove(‘active’));document.querySelectorAll(’.nav-btn’).forEach((b,j)=>b.classList.toggle(‘active’,j===i));document.getElementById(‘page’+n).classList.add(‘active’);document.getElementById(‘scroll’).scrollTop=0;}
 function loadS(){
 try{
