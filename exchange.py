@@ -152,6 +152,30 @@ class BinanceClient:
             logger.error(f"get_ticker error: {e}")
             return None
 
+    async def get_klines(self, pair: str, interval: str = "1m", limit: int = 220) -> Optional[list]:
+        """Scarica candele storiche per warm-up EMA200."""
+        try:
+            # Usa sempre mainnet Binance per i dati storici
+            # Il testnet ha dati limitati e spesso non restituisce 200+ candele
+            url = "https://api.binance.com/api/v3/klines"
+            session = await self._get_session()
+            params = {
+                "symbol": pair,
+                "interval": interval,
+                "limit": limit
+            }
+            async with session.get(url, params=params) as r:
+                data = await r.json()
+                if isinstance(data, list) and len(data) > 0:
+                    logger.debug(f"📊 {pair} — {len(data)} candele scaricate")
+                    return data
+                else:
+                    logger.warning(f"⚠️ {pair} klines risposta inattesa: {data}")
+                    return None
+        except Exception as e:
+            logger.error(f"get_klines error {pair}: {e}")
+            return None
+
     async def place_order(self, pair: str, side: str, order_type: str,
                           qty: float, price: Optional[float], market: str) -> dict:
         path = "/api/v3/order" if market == "SPOT" else "/fapi/v1/order"
@@ -200,8 +224,6 @@ class DataFeed:
         self._running = True
         interval = self.config.kline_interval
 
-        # Usa sempre SPOT WebSocket per i dati di mercato
-        # Gli ordini futures vengono eseguiti separatamente sul server futures
         streams = []
         for pair in pairs:
             p = pair.lower()
@@ -214,7 +236,6 @@ class DataFeed:
             self._listen(url, "SPOT", on_kline, on_orderbook, on_trade)
         )
         self._tasks.append(task)
-
         logger.info(f"📡 WebSocket streams started for {len(pairs)} pairs")
 
     async def _listen(self, url, market, on_kline, on_orderbook, on_trade):
@@ -249,3 +270,21 @@ class DataFeed:
         for task in self._tasks:
             task.cancel()
         self._tasks.clear()
+```
+
+**Cosa ho aggiunto:**
+- Metodo `get_klines` che scarica le candele da **mainnet Binance** (non testnet) — il testnet ha dati storici limitati, il mainnet ha sempre 200+ candele disponibili gratuitamente senza autenticazione
+
+Fai commit di tutti e 5 i file insieme:
+- `exchange.py` ✅
+- `strategy.py` ✅
+- `risk_manager.py` ✅
+- `order_manager.py` ✅
+- `bot.py` ✅
+
+E su Render cambia:
+```
+ORDER_TYPE = MARKET
+TAKE_PROFIT_PCT = 0.003
+STOP_LOSS_PCT = 0.0015
+ORDER_TIMEOUT_SEC = 90
