@@ -26,19 +26,18 @@ class APIServer:
     def add_log(self, type_: str, msg: str):
         now = datetime.now().strftime("%H:%M:%S")
         self._log_buffer.append({"type": type_, "msg": msg, "time": now})
-        if len(self._log_buffer) > 50:
+        if len(self._log_buffer) > 100:
             self._log_buffer.pop(0)
 
     async def start(self):
-        self._app.router.add_get('/',               self._handle_root)
-        self._app.router.add_get('/health',         self._handle_health)
-        self._app.router.add_get('/status',         self._handle_status)
-        self._app.router.add_post('/command',       self._handle_command)
-        # Master endpoints — protetti da token
-        self._app.router.add_get('/master/report',  self._handle_master_report)
-        self._app.router.add_get('/master/stats',   self._handle_master_stats)
-        self._app.router.add_get('/master/export',  self._handle_master_export)
-        self._app.router.add_get('/master/snapshot',self._handle_master_snapshot)
+        self._app.router.add_get('/',                self._handle_root)
+        self._app.router.add_get('/health',          self._handle_health)
+        self._app.router.add_get('/status',          self._handle_status)
+        self._app.router.add_post('/command',        self._handle_command)
+        self._app.router.add_get('/master/report',   self._handle_master_report)
+        self._app.router.add_get('/master/stats',    self._handle_master_stats)
+        self._app.router.add_get('/master/export',   self._handle_master_export)
+        self._app.router.add_get('/master/snapshot', self._handle_master_snapshot)
         self._app.middlewares.append(self._cors_middleware)
 
         self._runner = web.AppRunner(self._app)
@@ -79,22 +78,28 @@ class APIServer:
         rm = self.bot.risk_manager
         om = self.bot.order_manager
 
+        # Posizioni aperte con PnL live
         trades = []
         for key, trade in list(om.trades.items()):
             try:
                 ticker = await self.bot.client.get_ticker(trade.pair, trade.market)
                 current = float(ticker["price"]) if ticker else trade.entry_price
-                pnl = (current - trade.entry_price) * trade.qty if trade.side == "LONG" else (trade.entry_price - current) * trade.qty
+                if trade.side == "LONG":
+                    pnl = (current - trade.entry_price) * trade.qty
+                else:
+                    pnl = (trade.entry_price - current) * trade.qty
                 trades.append({
                     "symbol": trade.pair,
                     "side": trade.side,
                     "market": trade.market,
                     "pnl": round(pnl, 4),
                     "entry": trade.entry_price,
+                    "current": current,
                 })
             except Exception:
                 continue
 
+        # Status bot
         if not self.bot.running:
             status = "stopped"
         elif rm.is_daily_target_hit():
@@ -103,6 +108,59 @@ class APIServer:
             status = "paused"
         else:
             status = "running"
+
+        # Dati strategia in tempo reale per ogni coppia
+        strategies_data = {}
+        for pair, strat in self.bot.strategies.items():
+            price = strat.last_close or 0
+            ema200 = strat.ema_trend.value if strat.ema_trend.value else None
+            ema_fast = strat.ema_fast.value if strat.ema_fast.value else None
+            ema_slow = strat.ema_slow.value if strat.ema_slow.value else None
+
+            # Calcola distanza da EMA200
+            dist_pct = None
+            if price and ema200:
+                dist_pct = round((price - ema200) / ema200 * 100, 3)
+
+            # Trend
+            trend = "UP" if (price and ema200 and price > ema200) else "DOWN"
+
+            # Cosa manca per aprire
+            missing = []
+            if not strat._warmed_up:
+                missing.append("EMA200 non pronta")
+            elif ema200 and price:
+                if trend == "DOWN":
+                    diff = round(ema200 - price, 2)
+                    missing.append(f"Prezzo deve salire +{diff} ({abs(dist_pct):.2f}%)")
+                else:
+                    if ema_fast and ema_slow and ema_fast <= ema_slow:
+                        missing.append("EMA9 deve superare EMA21")
+                    total_ob = strat.bid_volume + strat.ask_volume
+                    if total_ob > 0:
+                        buy_ratio = strat.bid_volume / total_ob
+                        if buy_ratio < self.config.ob_imbalance_threshold:
+                            missing.append(f"OB buy {buy_ratio:.0%} < {self.config.ob_imbalance_threshold:.0%}")
+
+            strategies_data[pair] = {
+                "price": round(price, 2) if price else None,
+                "ema_fast": round(ema_fast, 2) if ema_fast else None,
+                "ema_slow": round(ema_slow, 2) if ema_slow else None,
+                "ema200": round(ema200, 2) if ema200 else None,
+                "trend": trend,
+                "dist_pct": dist_pct,
+                "warmed_up": strat._warmed_up,
+                "missing": missing,
+                "ob_buy": round(strat.bid_volume / (strat.bid_volume + strat.ask_volume) * 100, 1) if (strat.bid_volume + strat.ask_volume) > 0 else 0,
+            }
+
+        # Cooldown attivi
+        import time
+        cooldowns = {}
+        for pair, until in rm._cooldowns.items():
+            remaining = int(until - time.time())
+            if remaining > 0:
+                cooldowns[pair] = remaining
 
         return web.json_response({
             "status": status,
@@ -114,7 +172,9 @@ class APIServer:
             "active_pairs": list(self.bot.strategies.keys()),
             "target_pct": self.config.daily_profit_target_pct * 100,
             "risk_mode": "high" if self.config.daily_profit_target_pct >= 0.15 else "low",
-            "log": self._log_buffer[-20:],
+            "log": self._log_buffer[-30:],
+            "strategies": strategies_data,
+            "cooldowns": cooldowns,
         })
 
     async def _handle_command(self, request):
@@ -163,7 +223,7 @@ class APIServer:
         except Exception as e:
             return web.json_response({"ok": False, "msg": str(e)}, status=500)
 
-    # ─── MASTER ENDPOINTS ────────────────────────────────────────────
+    # MASTER ENDPOINTS
 
     async def _handle_master_report(self, request):
         if not self._check_master(request):
@@ -176,7 +236,6 @@ class APIServer:
         if not self._check_master(request):
             return web.json_response({"ok": False, "msg": "Unauthorized"}, status=401)
         stats = db.get_overall_stats()
-        # Aggiungi stato attuale del bot
         rm = self.bot.risk_manager
         stats['current'] = {
             "capital": round(rm.daily_start_capital, 2),
@@ -198,7 +257,6 @@ class APIServer:
         )
 
     async def _handle_master_snapshot(self, request):
-        """Salva snapshot manuale del PnL attuale."""
         if not self._check_master(request):
             return web.json_response({"ok": False, "msg": "Unauthorized"}, status=401)
         rm = self.bot.risk_manager
