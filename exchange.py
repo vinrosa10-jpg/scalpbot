@@ -270,21 +270,5 @@ class DataFeed:
         for task in self._tasks:
             task.cancel()
         self._tasks.clear()
-```
 
-**Cosa ho aggiunto:**
-- Metodo `get_klines` che scarica le candele da **mainnet Binance** (non testnet) — il testnet ha dati storici limitati, il mainnet ha sempre 200+ candele disponibili gratuitamente senza autenticazione
 
-Fai commit di tutti e 5 i file insieme:
-- `exchange.py` ✅
-- `strategy.py` ✅
-- `risk_manager.py` ✅
-- `order_manager.py` ✅
-- `bot.py` ✅
-
-E su Render cambia:
-```
-ORDER_TYPE = MARKET
-TAKE_PROFIT_PCT = 0.003
-STOP_LOSS_PCT = 0.0015
-ORDER_TIMEOUT_SEC = 90
