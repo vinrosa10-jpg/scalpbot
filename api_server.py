@@ -88,8 +88,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-```
 
-Aggiungi anche su **Render → Environment**:
-```
-MASTER_TOKEN = scalpbot_master_2024
