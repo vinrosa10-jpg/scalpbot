@@ -311,24 +311,4 @@ class APIServer:
             losses=getattr(rm, 'losing_trades', 0),
         )
         return web.json_response({"ok": True, "msg": "Snapshot salvato"})
-```
 
----
-
-**Per le variabili Render** — no, non devi aggiungere nulla di nuovo. I parametri ora vengono inviati in tempo reale dall'app tramite il comando `set_params`.
-
-Le uniche variabili che devi avere su Render sono quelle già esistenti:
-```
-BINANCE_SPOT_API_KEY = ...
-BINANCE_SPOT_API_SECRET = ...
-BINANCE_FUTURES_API_KEY = ...
-BINANCE_FUTURES_API_SECRET = ...
-TESTNET = true
-ENABLE_SPOT = false
-ENABLE_FUTURES = true
-TAKE_PROFIT_PCT = 0.002
-STOP_LOSS_PCT = 0.001
-ORDER_TIMEOUT_SEC = 180
-FUTURES_POSITION_SIZE_USDT = 50
-MASTER_TOKEN = scalpbot_master_2024
-PORT = 10000
