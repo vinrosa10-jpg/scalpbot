@@ -3,7 +3,7 @@ ScalpingBot - Main orchestrator
 """
 
 import asyncio
-from typing import Dict, List
+from typing import Dict
 from loguru import logger
 from config import Config
 from exchange import BinanceClient
@@ -19,7 +19,7 @@ class ScalpingBot:
     def __init__(self, config: Config):
         self.config = config
         self.running = False
-        self.api_server = None  # Viene impostato da main.py
+        self.api_server = None
 
         self.client = BinanceClient(config)
         self.risk_manager = RiskManager(config)
@@ -31,12 +31,10 @@ class ScalpingBot:
         self.risk_manager.set_eod_manager(self.eod_manager)
 
     def set_api_server(self, api_server):
-        """Collega l'API server per inviare log all'app mobile."""
         self.api_server = api_server
         self.order_manager.api_server = api_server
 
     def _log(self, type_: str, msg: str):
-        """Invia log sia a loguru che all'app mobile."""
         if type_ == 'win':
             logger.success(msg)
         elif type_ == 'loss':
@@ -55,6 +53,7 @@ class ScalpingBot:
 
         await self.client.sync_clock()
 
+        # Seleziona coppie
         if self.config.auto_select_pairs:
             self._log('info', '🔍 Selezione coppie automatica...')
             await self.pair_selector.start()
@@ -63,12 +62,23 @@ class ScalpingBot:
             pairs = self.config.pairs
             self._log('info', f'📋 Coppie: {", ".join(pairs)}')
 
+        # Registra strategie
         for pair in pairs:
             self.strategies[pair] = ScalpingStrategy(pair, self.config)
 
+        # Setup leverage futures
         if self.config.enable_futures:
             await self.client.set_leverage_all(pairs, self.config.futures_leverage)
 
+        # Warm-up EMA200 con dati storici
+        self._log('info', '📊 Warm-up EMA200 in corso...')
+        await asyncio.gather(*[
+            strat.warm_up_from_api(self.client)
+            for strat in self.strategies.values()
+        ])
+        self._log('info', '✅ EMA200 pronta — bot operativo!')
+
+        # Avvia WebSocket streams
         await self.data_feed.start(
             pairs=pairs,
             on_kline=self._on_kline,
@@ -76,6 +86,7 @@ class ScalpingBot:
             on_trade=self._on_trade,
         )
 
+        # Main loop
         while self.running:
             await self.order_manager.monitor_open_orders()
             await asyncio.sleep(1)
