@@ -1,212 +1,187 @@
 """
-Order Manager - Handles entry, exit, TP/SL for all open trades.
-Saves all trades to SQLite database for automatic documentation.
+Database Manager - SQLite per documentazione automatica trading.
 """
 
-import asyncio
-import math
-import time
-from typing import Dict, Optional
-from dataclasses import dataclass, field
+import sqlite3
+import os
+from datetime import datetime, date
 from loguru import logger
-from config import Config
-from risk_manager import RiskManager
-import database as db
 
+DB_PATH = os.path.join(os.path.dirname(__file__), 'scalpbot.db')
 
-@dataclass
-class Trade:
-    pair: str
-    side: str
-    market: str
-    entry_price: float
-    qty: float
-    tp_price: float
-    sl_price: float
-    order_id: str
-    opened_at: float = field(default_factory=time.time)
-    status: str = "OPEN"
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
+def init_db():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        date TEXT NOT NULL,
+        pair TEXT NOT NULL,
+        side TEXT NOT NULL,
+        market TEXT NOT NULL,
+        entry_price REAL NOT NULL,
+        exit_price REAL NOT NULL,
+        qty REAL NOT NULL,
+        pnl REAL NOT NULL,
+        reason TEXT NOT NULL,
+        duration_sec REAL DEFAULT 0
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS daily_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        capital REAL NOT NULL,
+        daily_pnl REAL NOT NULL,
+        wins INTEGER NOT NULL,
+        losses INTEGER NOT NULL,
+        win_rate REAL NOT NULL,
+        max_drawdown REAL DEFAULT 0
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS equity_curve (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        equity REAL NOT NULL,
+        pnl_cumulative REAL NOT NULL
+    )''')
+    conn.commit()
+    conn.close()
+    logger.info("✅ Database inizializzato")
 
-LOT_STEP = {
-    "BTCUSDT":   0.00001,
-    "ETHUSDT":   0.0001,
-    "BNBUSDT":   0.001,
-    "SOLUSDT":   0.01,
-    "XRPUSDT":   0.1,
-    "DOGEUSDT":  1.0,
-    "ADAUSDT":   1.0,
-    "BTCUSDT_F": 0.001,
-    "ETHUSDT_F": 0.001,
-    "BNBUSDT_F": 0.01,
-    "SOLUSDT_F": 0.1,
-    "XRPUSDT_F": 1.0,
-}
-DEFAULT_STEP = 0.001
+def save_trade(pair, side, market, entry_price, exit_price, qty, pnl, reason, duration_sec=0):
+    try:
+        conn = get_conn()
+        now = datetime.now()
+        conn.execute('''INSERT INTO trades
+            (timestamp, date, pair, side, market, entry_price, exit_price, qty, pnl, reason, duration_sec)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (now.isoformat(), now.date().isoformat(), pair, side, market,
+             entry_price, exit_price, qty, pnl, reason, duration_sec))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DB save_trade error: {e}")
 
+def save_snapshot(capital, daily_pnl, wins, losses, max_drawdown=0):
+    try:
+        conn = get_conn()
+        now = datetime.now()
+        wr = wins / (wins + losses) if (wins + losses) > 0 else 0
+        conn.execute('''INSERT INTO daily_snapshots
+            (date, timestamp, capital, daily_pnl, wins, losses, win_rate, max_drawdown)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (now.date().isoformat(), now.isoformat(), capital, daily_pnl, wins, losses, wr, max_drawdown))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DB save_snapshot error: {e}")
 
-def round_lot(qty: float, pair: str, market: str = "SPOT") -> float:
-    key = pair + ("_F" if market == "FUTURES" else "")
-    step = LOT_STEP.get(key, LOT_STEP.get(pair, DEFAULT_STEP))
-    qty = math.floor(qty / step) * step
-    precision = max(0, int(round(-math.log10(step))))
-    return round(qty, precision)
+def save_equity(equity, pnl_cumulative):
+    try:
+        conn = get_conn()
+        conn.execute('''INSERT INTO equity_curve (timestamp, equity, pnl_cumulative)
+            VALUES (?, ?, ?)''', (datetime.now().isoformat(), equity, pnl_cumulative))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DB save_equity error: {e}")
 
+def get_daily_report(target_date=None):
+    if target_date is None:
+        target_date = date.today().isoformat()
+    try:
+        conn = get_conn()
+        trades = conn.execute(
+            'SELECT * FROM trades WHERE date = ? ORDER BY timestamp DESC', (target_date,)
+        ).fetchall()
+        snap = conn.execute(
+            'SELECT * FROM daily_snapshots WHERE date = ? ORDER BY timestamp DESC LIMIT 1', (target_date,)
+        ).fetchone()
+        conn.close()
+        trades_list = [dict(t) for t in trades]
+        wins = sum(1 for t in trades_list if t['pnl'] > 0)
+        losses = sum(1 for t in trades_list if t['pnl'] <= 0)
+        total_pnl = sum(t['pnl'] for t in trades_list)
+        return {
+            'date': target_date,
+            'total_trades': len(trades_list),
+            'wins': wins,
+            'losses': losses,
+            'win_rate': round(wins / len(trades_list) * 100, 1) if trades_list else 0,
+            'total_pnl': round(total_pnl, 4),
+            'best_trade': round(max((t['pnl'] for t in trades_list), default=0), 4),
+            'worst_trade': round(min((t['pnl'] for t in trades_list), default=0), 4),
+            'capital': dict(snap)['capital'] if snap else 0,
+            'trades': trades_list,
+        }
+    except Exception as e:
+        logger.error(f"DB get_daily_report error: {e}")
+        return {}
 
-class OrderManager:
-    def __init__(self, client, risk_manager: RiskManager, config: Config):
-        self.client = client
-        self.risk_manager = risk_manager
-        self.config = config
-        self.trades: Dict[str, Trade] = {}
+def get_overall_stats():
+    try:
+        conn = get_conn()
+        trades = conn.execute('SELECT * FROM trades ORDER BY timestamp ASC').fetchall()
+        equity = conn.execute('SELECT * FROM equity_curve ORDER BY timestamp DESC LIMIT 100').fetchall()
+        conn.close()
+        trades_list = [dict(t) for t in trades]
+        if not trades_list:
+            return {'total_trades': 0, 'total_pnl': 0, 'win_rate': 0, 'equity': []}
+        wins = sum(1 for t in trades_list if t['pnl'] > 0)
+        losses = sum(1 for t in trades_list if t['pnl'] <= 0)
+        total_pnl = sum(t['pnl'] for t in trades_list)
+        cumulative = 0
+        peak = 0
+        max_dd = 0
+        for t in trades_list:
+            cumulative += t['pnl']
+            if cumulative > peak:
+                peak = cumulative
+            dd = peak - cumulative
+            if dd > max_dd:
+                max_dd = dd
+        daily = {}
+        for t in trades_list:
+            d = t['date']
+            if d not in daily:
+                daily[d] = {'pnl': 0, 'trades': 0, 'wins': 0}
+            daily[d]['pnl'] += t['pnl']
+            daily[d]['trades'] += 1
+            if t['pnl'] > 0:
+                daily[d]['wins'] += 1
+        return {
+            'total_trades': len(trades_list),
+            'wins': wins,
+            'losses': losses,
+            'win_rate': round(wins / len(trades_list) * 100, 1) if trades_list else 0,
+            'total_pnl': round(total_pnl, 4),
+            'max_drawdown': round(max_dd, 4),
+            'best_day': round(max((d['pnl'] for d in daily.values()), default=0), 4),
+            'worst_day': round(min((d['pnl'] for d in daily.values()), default=0), 4),
+            'profitable_days': sum(1 for d in daily.values() if d['pnl'] > 0),
+            'total_days': len(daily),
+            'daily': [{'date': k, **v} for k, v in sorted(daily.items())],
+            'equity': [dict(e) for e in equity],
+        }
+    except Exception as e:
+        logger.error(f"DB get_overall_stats error: {e}")
+        return {}
 
-    def _trade_key(self, pair: str, market: str) -> str:
-        return f"{pair}_{market}"
-
-    async def open_trade(self, pair: str, signal: str, market: str):
-        key = self._trade_key(pair, market)
-        if key in self.trades:
-            return
-
-        ticker = await self.client.get_ticker(pair, market)
-        if not ticker:
-            return
-
-        price = float(ticker["price"])
-        side = "BUY" if signal == "LONG" else "SELL"
-
-        if market == "SPOT" and signal == "SHORT":
-            return
-
-        qty = self.risk_manager.calculate_position_size(price, market)
-        qty = round_lot(qty, pair, market)
-
-        if qty <= 0:
-            logger.warning(f"⚠️ Qty troppo piccola per {pair} [{market}]: {qty}")
-            return
-
-        tp, sl = self.risk_manager.calculate_tp_sl(price, signal)
-
-        if side == "BUY":
-            limit_price = price * (1 + self.config.limit_order_offset_pct)
-        else:
-            limit_price = price * (1 - self.config.limit_order_offset_pct)
-
-        limit_price = round(limit_price, 2)
-
-        logger.info(f"📥 Opening {signal} {pair} [{market}] | Price: {price} | Qty: {qty} | TP: {tp} | SL: {sl}")
-
-        try:
-            order = await self.client.place_order(
-                pair=pair,
-                side=side,
-                order_type=self.config.order_type,
-                qty=qty,
-                price=limit_price,
-                market=market,
-            )
-
-            order_id = order.get("orderId", "unknown")
-            trade = Trade(
-                pair=pair,
-                side=signal,
-                market=market,
-                entry_price=limit_price,
-                qty=qty,
-                tp_price=tp,
-                sl_price=sl,
-                order_id=str(order_id),
-            )
-
-            self.trades[key] = trade
-            self.risk_manager.register_trade_open(pair)
-            logger.info(f"✅ Ordine aperto {pair} [{market}] | ID: {order_id}")
-
-        except Exception as e:
-            logger.error(f"Order error {pair} [{market}]: {e}")
-
-    async def monitor_open_orders(self):
-        for key, trade in list(self.trades.items()):
-            try:
-                ticker = await self.client.get_ticker(trade.pair, trade.market)
-                if not ticker:
-                    continue
-
-                current_price = float(ticker["price"])
-                elapsed = time.time() - trade.opened_at
-
-                if elapsed > self.config.order_timeout_sec and trade.status == "OPEN":
-                    logger.warning(f"⏱️ Order timeout {trade.pair} [{trade.market}]")
-                    await self.client.cancel_order(trade.pair, trade.order_id, trade.market)
-                    await self._close_trade(key, trade, current_price, reason="TIMEOUT")
-                    continue
-
-                if trade.side == "LONG" and current_price >= trade.tp_price:
-                    await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                elif trade.side == "SHORT" and current_price <= trade.tp_price:
-                    await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                elif trade.side == "LONG" and current_price <= trade.sl_price:
-                    await self._close_trade(key, trade, trade.sl_price, reason="SL")
-                elif trade.side == "SHORT" and current_price >= trade.sl_price:
-                    await self._close_trade(key, trade, trade.sl_price, reason="SL")
-
-            except Exception as e:
-                logger.error(f"Monitor error {key}: {e}")
-
-    async def _close_trade(self, key: str, trade: Trade, exit_price: float, reason: str):
-        if trade.side == "LONG":
-            pnl = (exit_price - trade.entry_price) * trade.qty
-        else:
-            pnl = (trade.entry_price - exit_price) * trade.qty
-
-        fee_pct = 0.001 if trade.market == "SPOT" else 0.0004
-        fees = trade.entry_price * trade.qty * fee_pct * 2
-        net_pnl = pnl - fees
-        duration = time.time() - trade.opened_at
-
-        logger.info(f"🔒 Close [{reason}] {trade.pair} [{trade.market}] | Net PnL: {net_pnl:+.4f} USDT")
-
-        try:
-            close_side = "SELL" if trade.side == "LONG" else "BUY"
-            await self.client.place_order(
-                pair=trade.pair,
-                side=close_side,
-                order_type="MARKET",
-                qty=trade.qty,
-                price=None,
-                market=trade.market,
-            )
-        except Exception as e:
-            logger.error(f"Close order error: {e}")
-
-        # Salva nel database
-        try:
-            db.save_trade(
-                pair=trade.pair,
-                side=trade.side,
-                market=trade.market,
-                entry_price=trade.entry_price,
-                exit_price=exit_price,
-                qty=trade.qty,
-                pnl=net_pnl,
-                reason=reason,
-                duration_sec=round(duration, 1)
-            )
-            # Salva equity curve
-            rm = self.risk_manager
-            db.save_equity(
-                equity=rm.daily_start_capital + rm.daily_pnl,
-                pnl_cumulative=rm.daily_pnl
-            )
-        except Exception as e:
-            logger.error(f"DB save error: {e}")
-
-        self.trades.pop(key, None)
-        self.risk_manager.register_trade_close(trade.pair, net_pnl)
-
-    async def close_all_positions(self):
-        logger.warning("⚠️  Closing all positions...")
-        for key, trade in list(self.trades.items()):
-            ticker = await self.client.get_ticker(trade.pair, trade.market)
-            price = float(ticker["price"]) if ticker else trade.entry_price
-            await self._close_trade(key, trade, price, reason="EMERGENCY")
+def export_csv():
+    try:
+        conn = get_conn()
+        trades = conn.execute('SELECT * FROM trades ORDER BY timestamp ASC').fetchall()
+        conn.close()
+        lines = ['timestamp,date,pair,side,market,entry_price,exit_price,qty,pnl,reason,duration_sec']
+        for t in trades:
+            t = dict(t)
+            lines.append(f"{t['timestamp']},{t['date']},{t['pair']},{t['side']},{t['market']},"
+                        f"{t['entry_price']},{t['exit_price']},{t['qty']},{t['pnl']},{t['reason']},{t['duration_sec']}")
+        return '\n'.join(lines)
+    except Exception as e:
+        logger.error(f"DB export_csv error: {e}")
+        return ''
