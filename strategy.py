@@ -1,19 +1,9 @@
 """
-Scalping Strategy: Order Book Imbalance + EMA Momentum + EMA200 Trend Filter
-
-Entry conditions (LONG):
-  - Prezzo > EMA200 (trend rialzista di lungo periodo)
-  - EMA fast > EMA slow (momentum rialzista)
-  - Order book buy pressure > ob_imbalance_threshold
-  - Recent trade flow confirms buying
-
-Entry conditions (SHORT - futures only):
-  - Prezzo < EMA200 (trend ribassista di lungo periodo)
-  - EMA fast < EMA slow (momentum ribassista)
-  - Order book sell pressure > ob_imbalance_threshold
-  - Recent trade flow confirms selling
+Scalping Strategy: OBI + EMA Momentum + EMA200 Trend Filter
+Carica candele storiche all'avvio per EMA200 accurata.
 """
 
+import asyncio
 from collections import deque
 from typing import Literal, Optional
 from loguru import logger
@@ -40,23 +30,48 @@ class EMA:
             self.value = price * self.k + self.value * (1 - self.k)
         return self.value
 
+    def warm_up(self, prices: list):
+        """Inizializza EMA con dati storici."""
+        for p in prices:
+            self.update(p)
+
 
 class ScalpingStrategy:
     def __init__(self, pair: str, config: Config):
         self.pair = pair
         self.config = config
 
-        self.ema_fast = EMA(config.ema_fast)   # EMA 9
-        self.ema_slow = EMA(config.ema_slow)   # EMA 21
-        self.ema_trend = EMA(200)              # EMA 200 — filtro trend principale
+        self.ema_fast = EMA(config.ema_fast)    # EMA 9
+        self.ema_slow = EMA(config.ema_slow)    # EMA 21
+        self.ema_trend = EMA(200)               # EMA 200
 
         self.bid_volume = 0.0
         self.ask_volume = 0.0
-
         self.trade_window = deque(maxlen=200)
-
         self.last_close: Optional[float] = None
         self._last_signal: SignalType = "NONE"
+        self._warmed_up = False  # EMA200 pronta?
+
+    async def warm_up_from_api(self, client):
+        """Carica le ultime 200 candele storiche via REST per EMA200 accurata."""
+        try:
+            logger.info(f"📊 {self.pair} — caricamento 200 candele storiche...")
+            klines = await client.get_klines(self.pair, interval="1m", limit=220)
+            if klines and len(klines) >= 200:
+                closes = [float(k[4]) for k in klines[:-1]]  # escludi candela corrente
+                self.ema_fast.warm_up(closes[-50:])    # ultimi 50 per EMA9/21
+                self.ema_slow.warm_up(closes[-50:])
+                self.ema_trend.warm_up(closes)          # tutti 200 per EMA200
+                self.last_close = closes[-1]
+                self._warmed_up = True
+                logger.info(
+                    f"✅ {self.pair} EMA200={self.ema_trend.value:.2f} | "
+                    f"EMA9={self.ema_fast.value:.2f} | EMA21={self.ema_slow.value:.2f}"
+                )
+            else:
+                logger.warning(f"⚠️ {self.pair} — dati insufficienti per warm-up")
+        except Exception as e:
+            logger.warning(f"⚠️ {self.pair} warm-up fallito: {e} — procedo senza storico")
 
     def update_kline(self, data: dict):
         close = float(data["k"]["c"])
@@ -64,6 +79,8 @@ class ScalpingStrategy:
         self.ema_fast.update(close)
         self.ema_slow.update(close)
         self.ema_trend.update(close)
+        if not self._warmed_up and self.ema_trend.value is not None:
+            self._warmed_up = True
 
     def update_orderbook(self, data: dict):
         depth = self.config.ob_depth_levels
@@ -87,11 +104,13 @@ class ScalpingStrategy:
         return buy, sell
 
     def get_signal(self) -> SignalType:
-        # EMA fast e slow devono essere pronte
+        # EMA200 deve essere pronta e warm-up completato
+        if not self._warmed_up:
+            return "NONE"
+
         if self.ema_fast.value is None or self.ema_slow.value is None:
             return "NONE"
 
-        # EMA200 deve essere pronta
         if self.ema_trend.value is None:
             return "NONE"
 
@@ -112,30 +131,31 @@ class ScalpingStrategy:
         ema_up   = self.ema_fast.value > self.ema_slow.value
         ema_down = self.ema_fast.value < self.ema_slow.value
 
-        # Filtro trend EMA200
         price = self.last_close or 0
-        trend_up   = price > self.ema_trend.value   # Mercato rialzista
-        trend_down = price < self.ema_trend.value   # Mercato ribassista
+        trend_up   = price > self.ema_trend.value
+        trend_down = price < self.ema_trend.value
 
-        # LONG — solo se il mercato è in uptrend (prezzo > EMA200)
+        # LONG — solo se trend rialzista
         if trend_up and ema_up and buy_ratio >= threshold and flow_confirms_buy:
             if self._last_signal != "LONG":
                 self._last_signal = "LONG"
                 logger.info(
-                    f"📈 {self.pair} LONG | EMA {self.ema_fast.value:.2f}>{self.ema_slow.value:.2f} "
-                    f"| EMA200={self.ema_trend.value:.2f} | OB={buy_ratio:.0%} "
-                    f"| flow={buy_flow:.2f}/{total_flow:.2f}"
+                    f"📈 {self.pair} LONG | "
+                    f"EMA {self.ema_fast.value:.2f}>{self.ema_slow.value:.2f} | "
+                    f"EMA200={self.ema_trend.value:.2f} | "
+                    f"OB={buy_ratio:.0%} | flow={buy_flow:.2f}/{total_flow:.2f}"
                 )
                 return "LONG"
 
-        # SHORT — solo se il mercato è in downtrend (prezzo < EMA200)
+        # SHORT — solo se trend ribassista
         elif trend_down and ema_down and sell_ratio >= threshold and flow_confirms_sell:
             if self._last_signal != "SHORT":
                 self._last_signal = "SHORT"
                 logger.info(
-                    f"📉 {self.pair} SHORT | EMA {self.ema_fast.value:.2f}<{self.ema_slow.value:.2f} "
-                    f"| EMA200={self.ema_trend.value:.2f} | OB={sell_ratio:.0%} "
-                    f"| flow={sell_flow:.2f}/{total_flow:.2f}"
+                    f"📉 {self.pair} SHORT | "
+                    f"EMA {self.ema_fast.value:.2f}<{self.ema_slow.value:.2f} | "
+                    f"EMA200={self.ema_trend.value:.2f} | "
+                    f"OB={sell_ratio:.0%} | flow={sell_flow:.2f}/{total_flow:.2f}"
                 )
                 return "SHORT"
 
