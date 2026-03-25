@@ -80,7 +80,7 @@ class APIServer:
         rm = self.bot.risk_manager
         om = self.bot.order_manager
 
-        # Posizioni aperte con PnL live
+        # Posizioni aperte con PnL live ed elapsed time
         trades = []
         for key, trade in list(om.trades.items()):
             try:
@@ -97,6 +97,7 @@ class APIServer:
                     "pnl": round(pnl, 4),
                     "entry": trade.entry_price,
                     "current": current,
+                    "elapsed_sec": round(time.time() - trade.opened_at, 0),
                 })
             except Exception:
                 continue
@@ -235,19 +236,15 @@ class APIServer:
                 enabled = body.get("enabled", True)
                 if market == "spot":
                     self.config.enable_spot = enabled
-                    # Toggle esclusivo — disattiva futures se spot attivato
                     if enabled:
                         self.config.enable_futures = False
-                        # Usa parametri spot
                         self.config.take_profit_pct = self.config.spot_take_profit_pct
                         self.config.stop_loss_pct = self.config.spot_stop_loss_pct
                         self.config.order_timeout_sec = self.config.spot_order_timeout_sec
                 elif market == "futures":
                     self.config.enable_futures = enabled
-                    # Toggle esclusivo — disattiva spot se futures attivato
                     if enabled:
                         self.config.enable_spot = False
-                        # Usa parametri futures da config
                         self.config.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "0.002"))
                         self.config.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "0.001"))
                         self.config.order_timeout_sec = int(os.getenv("ORDER_TIMEOUT_SEC", "180"))
@@ -264,11 +261,11 @@ class APIServer:
                 return web.json_response({"ok": True})
 
             elif cmd == "set_params":
-                tp      = body.get("tp")
-                sl      = body.get("sl")
+                tp = body.get("tp")
+                sl = body.get("sl")
                 timeout = body.get("timeout")
-                size    = body.get("size")
-                market  = body.get("market", "futures")
+                size = body.get("size")
+                market = body.get("market", "futures")
 
                 if tp is not None:
                     self.config.take_profit_pct = float(tp)
@@ -353,3 +350,4 @@ class APIServer:
             losses=getattr(rm, 'losing_trades', 0),
         )
         return web.json_response({"ok": True, "msg": "Snapshot salvato"})
+
