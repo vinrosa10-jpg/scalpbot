@@ -658,9 +658,27 @@ return ‘<div class="mkt-pair-row"><div class="mkt-pair-top"><div class="mkt-pa
 
 // AUTH
 function doLogin(){
-var u=document.getElementById(‘lu’).value.trim(),p=document.getElementById(‘lp’).value;
-if(USERS[u]&&USERS[u]===p){S.user=u;localStorage.setItem(‘sbu’,u);document.getElementById(‘loginScreen’).classList.add(‘hidden’);document.getElementById(‘app’).classList.remove(‘hidden’);document.getElementById(‘huser’).textContent=u.toUpperCase();if(u===MASTER_USER)document.getElementById(‘masterSection’).style.display=‘block’;init();}
-else{document.getElementById(‘lerr’).textContent=‘Credenziali non valide’;setTimeout(()=>document.getElementById(‘lerr’).textContent=’’,3000);}
+try{
+var u=document.getElementById(‘lu’).value.trim();
+var p=document.getElementById(‘lp’).value;
+var errEl=document.getElementById(‘lerr’);
+if(!u||!p){errEl.textContent=‘Inserisci username e password’;return;}
+var expected=USERS[u];
+if(expected&&expected===p){
+S.user=u;
+try{localStorage.setItem(‘sbu’,u);}catch(e){}
+document.getElementById(‘loginScreen’).classList.add(‘hidden’);
+document.getElementById(‘app’).classList.remove(‘hidden’);
+document.getElementById(‘huser’).textContent=u.toUpperCase();
+if(u===MASTER_USER)document.getElementById(‘masterSection’).style.display=‘block’;
+init();
+}else{
+errEl.textContent=‘Credenziali non valide’;
+setTimeout(function(){errEl.textContent=’’;},3000);
+}
+}catch(e){
+document.getElementById(‘lerr’).textContent=‘Errore: ‘+e.message;
+}
 }
 function logout(){localStorage.removeItem(‘sbu’);S.user=null;if(poll)clearInterval(poll);if(btcWs)btcWs.close();document.getElementById(‘app’).classList.add(‘hidden’);document.getElementById(‘loginScreen’).classList.remove(‘hidden’);document.getElementById(‘lu’).value=’’;document.getElementById(‘lp’).value=’’;}
 document.getElementById(‘lp’).addEventListener(‘keydown’,e=>{if(e.key===‘Enter’)doLogin();});
