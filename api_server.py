@@ -161,7 +161,16 @@ class APIServer:
             remaining = int(until - time.time())
             if remaining > 0:
                 cooldowns[pair] = remaining
+current_params = {
+    "tp_pct": round(self.config.take_profit_pct * 100, 3),
+    "sl_pct": round(self.config.stop_loss_pct * 100, 3),
+    "timeout": self.config.order_timeout_sec,
+    "spot_size": self.config.position_size_usdt,
+    "futures_size": self.config.futures_position_size_usdt,
+    "spot_tp_pct": round(self.config.spot_take_profit_pct * 100, 3),
+    "spot_sl_pct": round(self.config.spot_stop_loss_pct * 100, 3),
+    "spot_timeout": self.config.spot_order_timeout_sec,
+    "spot_enabled": self.config.enable_spot,
+    "futures_enabled": self.config.enable_futures,
+}
 
-        # Parametri attuali
-        current_params = {
-            "tp_pct": round(self.config.take_profit_pct * 100, 3​​​​​​​​​​​​​​​​
