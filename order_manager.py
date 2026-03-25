@@ -1,5 +1,6 @@
 """
 Order Manager - Handles entry, exit, TP/SL for all open trades.
+Saves all trades to SQLite database for automatic documentation.
 """
 
 import asyncio
@@ -10,13 +11,14 @@ from dataclasses import dataclass, field
 from loguru import logger
 from config import Config
 from risk_manager import RiskManager
+import database as db
 
 
 @dataclass
 class Trade:
     pair: str
-    side: str           # LONG / SHORT
-    market: str         # SPOT / FUTURES
+    side: str
+    market: str
     entry_price: float
     qty: float
     tp_price: float
@@ -26,28 +28,24 @@ class Trade:
     status: str = "OPEN"
 
 
-# Step size per coppia — LOT_SIZE filter di Binance
 LOT_STEP = {
-    # SPOT
-    "BTCUSDT":    0.00001,
-    "ETHUSDT":    0.0001,
-    "BNBUSDT":    0.001,
-    "SOLUSDT":    0.01,
-    "XRPUSDT":    0.1,
-    "DOGEUSDT":   1.0,
-    "ADAUSDT":    1.0,
-    # FUTURES — step size diverso
-    "BTCUSDT_F":  0.001,
-    "ETHUSDT_F":  0.001,
-    "BNBUSDT_F":  0.01,
-    "SOLUSDT_F":  0.1,
-    "XRPUSDT_F":  1.0,
+    "BTCUSDT":   0.00001,
+    "ETHUSDT":   0.0001,
+    "BNBUSDT":   0.001,
+    "SOLUSDT":   0.01,
+    "XRPUSDT":   0.1,
+    "DOGEUSDT":  1.0,
+    "ADAUSDT":   1.0,
+    "BTCUSDT_F": 0.001,
+    "ETHUSDT_F": 0.001,
+    "BNBUSDT_F": 0.01,
+    "SOLUSDT_F": 0.1,
+    "XRPUSDT_F": 1.0,
 }
 DEFAULT_STEP = 0.001
 
 
 def round_lot(qty: float, pair: str, market: str = "SPOT") -> float:
-    """Arrotonda qty al step size corretto per coppia e mercato."""
     key = pair + ("_F" if market == "FUTURES" else "")
     step = LOT_STEP.get(key, LOT_STEP.get(pair, DEFAULT_STEP))
     qty = math.floor(qty / step) * step
@@ -77,7 +75,6 @@ class OrderManager:
         price = float(ticker["price"])
         side = "BUY" if signal == "LONG" else "SELL"
 
-        # SPOT non supporta SHORT
         if market == "SPOT" and signal == "SHORT":
             return
 
@@ -85,7 +82,7 @@ class OrderManager:
         qty = round_lot(qty, pair, market)
 
         if qty <= 0:
-            logger.warning(f"⚠️ Qty troppo piccola per {pair} [{market}]: {qty} — saltato")
+            logger.warning(f"⚠️ Qty troppo piccola per {pair} [{market}]: {qty}")
             return
 
         tp, sl = self.risk_manager.calculate_tp_sl(price, signal)
@@ -129,7 +126,6 @@ class OrderManager:
             logger.error(f"Order error {pair} [{market}]: {e}")
 
     async def monitor_open_orders(self):
-        """Check TP/SL on all open trades."""
         for key, trade in list(self.trades.items()):
             try:
                 ticker = await self.client.get_ticker(trade.pair, trade.market)
@@ -139,20 +135,16 @@ class OrderManager:
                 current_price = float(ticker["price"])
                 elapsed = time.time() - trade.opened_at
 
-                # Timeout
                 if elapsed > self.config.order_timeout_sec and trade.status == "OPEN":
-                    logger.warning(f"⏱️  Order timeout {trade.pair} [{trade.market}] — cancelling")
+                    logger.warning(f"⏱️ Order timeout {trade.pair} [{trade.market}]")
                     await self.client.cancel_order(trade.pair, trade.order_id, trade.market)
                     await self._close_trade(key, trade, current_price, reason="TIMEOUT")
                     continue
 
-                # Check TP
                 if trade.side == "LONG" and current_price >= trade.tp_price:
                     await self._close_trade(key, trade, trade.tp_price, reason="TP")
                 elif trade.side == "SHORT" and current_price <= trade.tp_price:
                     await self._close_trade(key, trade, trade.tp_price, reason="TP")
-
-                # Check SL
                 elif trade.side == "LONG" and current_price <= trade.sl_price:
                     await self._close_trade(key, trade, trade.sl_price, reason="SL")
                 elif trade.side == "SHORT" and current_price >= trade.sl_price:
@@ -162,7 +154,6 @@ class OrderManager:
                 logger.error(f"Monitor error {key}: {e}")
 
     async def _close_trade(self, key: str, trade: Trade, exit_price: float, reason: str):
-        """Close a trade and register PnL."""
         if trade.side == "LONG":
             pnl = (exit_price - trade.entry_price) * trade.qty
         else:
@@ -171,6 +162,7 @@ class OrderManager:
         fee_pct = 0.001 if trade.market == "SPOT" else 0.0004
         fees = trade.entry_price * trade.qty * fee_pct * 2
         net_pnl = pnl - fees
+        duration = time.time() - trade.opened_at
 
         logger.info(f"🔒 Close [{reason}] {trade.pair} [{trade.market}] | Net PnL: {net_pnl:+.4f} USDT")
 
@@ -187,11 +179,32 @@ class OrderManager:
         except Exception as e:
             logger.error(f"Close order error: {e}")
 
+        # Salva nel database
+        try:
+            db.save_trade(
+                pair=trade.pair,
+                side=trade.side,
+                market=trade.market,
+                entry_price=trade.entry_price,
+                exit_price=exit_price,
+                qty=trade.qty,
+                pnl=net_pnl,
+                reason=reason,
+                duration_sec=round(duration, 1)
+            )
+            # Salva equity curve
+            rm = self.risk_manager
+            db.save_equity(
+                equity=rm.daily_start_capital + rm.daily_pnl,
+                pnl_cumulative=rm.daily_pnl
+            )
+        except Exception as e:
+            logger.error(f"DB save error: {e}")
+
         self.trades.pop(key, None)
         self.risk_manager.register_trade_close(trade.pair, net_pnl)
 
     async def close_all_positions(self):
-        """Emergency close all."""
         logger.warning("⚠️  Closing all positions...")
         for key, trade in list(self.trades.items()):
             ticker = await self.client.get_ticker(trade.pair, trade.market)
