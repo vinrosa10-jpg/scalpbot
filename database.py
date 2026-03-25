@@ -7,16 +7,20 @@ import os
 from datetime import datetime, date
 from loguru import logger
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'scalpbot.db')
+DB_PATH = os.environ.get("DB_PATH", "/data/scalpbot.db")
+
 
 def get_conn():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def init_db():
     conn = get_conn()
     c = conn.cursor()
+
     c.execute('''CREATE TABLE IF NOT EXISTS trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,
@@ -31,6 +35,7 @@ def init_db():
         reason TEXT NOT NULL,
         duration_sec REAL DEFAULT 0
     )''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS daily_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
@@ -42,15 +47,23 @@ def init_db():
         win_rate REAL NOT NULL,
         max_drawdown REAL DEFAULT 0
     )''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS equity_curve (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,
         equity REAL NOT NULL,
         pnl_cumulative REAL NOT NULL
     )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS bot_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )''')
+
     conn.commit()
     conn.close()
     logger.info("✅ Database inizializzato")
+
 
 def save_trade(pair, side, market, entry_price, exit_price, qty, pnl, reason, duration_sec=0):
     try:
@@ -66,6 +79,7 @@ def save_trade(pair, side, market, entry_price, exit_price, qty, pnl, reason, du
     except Exception as e:
         logger.error(f"DB save_trade error: {e}")
 
+
 def save_snapshot(capital, daily_pnl, wins, losses, max_drawdown=0):
     try:
         conn = get_conn()
@@ -80,6 +94,7 @@ def save_snapshot(capital, daily_pnl, wins, losses, max_drawdown=0):
     except Exception as e:
         logger.error(f"DB save_snapshot error: {e}")
 
+
 def save_equity(equity, pnl_cumulative):
     try:
         conn = get_conn()
@@ -89,6 +104,55 @@ def save_equity(equity, pnl_cumulative):
         conn.close()
     except Exception as e:
         logger.error(f"DB save_equity error: {e}")
+
+
+def save_bot_state(key: str, value: str):
+    """Salva parametro dinamico nel DB."""
+    try:
+        conn = get_conn()
+        conn.execute('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)',
+            (key, value))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"save_bot_state error: {e}")
+
+
+def get_bot_state(key: str, default: str = None) -> str:
+    """Legge parametro dinamico dal DB."""
+    try:
+        conn = get_conn()
+        row = conn.execute('SELECT value FROM bot_state WHERE key = ?',
+            (key,)).fetchone()
+        conn.close()
+        return row[0] if row else default
+    except Exception:
+        return default
+
+
+def save_all_state(state: dict):
+    """Salva dizionario di stato nel DB."""
+    try:
+        conn = get_conn()
+        for key, value in state.items():
+            conn.execute('INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)',
+                (key, str(value)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"save_all_state error: {e}")
+
+
+def load_all_state() -> dict:
+    """Carica tutto lo stato dal DB."""
+    try:
+        conn = get_conn()
+        rows = conn.execute('SELECT key, value FROM bot_state').fetchall()
+        conn.close()
+        return {row[0]: row[1] for row in rows}
+    except Exception:
+        return {}
+
 
 def get_daily_report(target_date=None):
     if target_date is None:
@@ -121,6 +185,7 @@ def get_daily_report(target_date=None):
     except Exception as e:
         logger.error(f"DB get_daily_report error: {e}")
         return {}
+
 
 def get_overall_stats():
     try:
@@ -171,6 +236,7 @@ def get_overall_stats():
         logger.error(f"DB get_overall_stats error: {e}")
         return {}
 
+
 def export_csv():
     try:
         conn = get_conn()
@@ -179,8 +245,11 @@ def export_csv():
         lines = ['timestamp,date,pair,side,market,entry_price,exit_price,qty,pnl,reason,duration_sec']
         for t in trades:
             t = dict(t)
-            lines.append(f"{t['timestamp']},{t['date']},{t['pair']},{t['side']},{t['market']},"
-                        f"{t['entry_price']},{t['exit_price']},{t['qty']},{t['pnl']},{t['reason']},{t['duration_sec']}")
+            lines.append(
+                f"{t['timestamp']},{t['date']},{t['pair']},{t['side']},{t['market']},"
+                f"{t['entry_price']},{t['exit_price']},{t['qty']},{t['pnl']},"
+                f"{t['reason']},{t['duration_sec']}"
+            )
         return '\n'.join(lines)
     except Exception as e:
         logger.error(f"DB export_csv error: {e}")
