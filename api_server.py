@@ -109,7 +109,7 @@ class APIServer:
         else:
             status = "running"
 
-        # Dati strategia in tempo reale per ogni coppia
+        # Dati strategia in tempo reale
         strategies_data = {}
         for pair, strat in self.bot.strategies.items():
             price = strat.last_close or 0
@@ -117,15 +117,12 @@ class APIServer:
             ema_fast = strat.ema_fast.value if strat.ema_fast.value else None
             ema_slow = strat.ema_slow.value if strat.ema_slow.value else None
 
-            # Calcola distanza da EMA200
             dist_pct = None
             if price and ema200:
                 dist_pct = round((price - ema200) / ema200 * 100, 3)
 
-            # Trend
             trend = "UP" if (price and ema200 and price > ema200) else "DOWN"
 
-            # Cosa manca per aprire
             missing = []
             if not strat._warmed_up:
                 missing.append("EMA200 non pronta")
@@ -162,6 +159,17 @@ class APIServer:
             if remaining > 0:
                 cooldowns[pair] = remaining
 
+        # Parametri attuali
+        current_params = {
+            "tp_pct": round(self.config.take_profit_pct * 100, 3),
+            "sl_pct": round(self.config.stop_loss_pct * 100, 3),
+            "timeout": self.config.order_timeout_sec,
+            "spot_size": self.config.position_size_usdt,
+            "futures_size": self.config.futures_position_size_usdt,
+            "spot_enabled": self.config.enable_spot,
+            "futures_enabled": self.config.enable_futures,
+        }
+
         return web.json_response({
             "status": status,
             "capital": round(rm.daily_start_capital, 2),
@@ -175,6 +183,7 @@ class APIServer:
             "log": self._log_buffer[-30:],
             "strategies": strategies_data,
             "cooldowns": cooldowns,
+            "params": current_params,
         })
 
     async def _handle_command(self, request):
@@ -187,21 +196,26 @@ class APIServer:
             if cmd == "stop":
                 asyncio.create_task(self.bot.stop())
                 return web.json_response({"ok": True})
+
             elif cmd == "start":
                 if not self.bot.running:
                     asyncio.create_task(self.bot.start())
                 return web.json_response({"ok": True})
+
             elif cmd == "pause":
                 self.bot.risk_manager._target_hit = True
                 return web.json_response({"ok": True})
+
             elif cmd == "restart":
                 asyncio.create_task(self.bot.stop())
                 await asyncio.sleep(2)
                 asyncio.create_task(self.bot.start())
                 return web.json_response({"ok": True})
+
             elif cmd == "emergency_stop":
                 await self.bot.order_manager.close_all_positions()
                 return web.json_response({"ok": True})
+
             elif cmd == "set_risk":
                 level = body.get("value", "high")
                 target = body.get("target", 20) / 100
@@ -209,6 +223,7 @@ class APIServer:
                 self.bot.risk_manager._target_hit = False
                 self.bot.risk_manager.daily_pnl = 0
                 return web.json_response({"ok": True})
+
             elif cmd == "set_market":
                 market = body.get("market", "spot")
                 enabled = body.get("enabled", True)
@@ -219,11 +234,40 @@ class APIServer:
                 logger.info(f"📱 {market.upper()} {'attivato' if enabled else 'disattivato'}")
                 return web.json_response({"ok": True})
 
+            elif cmd == "set_params":
+                tp      = body.get("tp")
+                sl      = body.get("sl")
+                timeout = body.get("timeout")
+                size    = body.get("size")
+                market  = body.get("market", "futures")
+
+                if tp is not None:
+                    self.config.take_profit_pct = float(tp)
+                if sl is not None:
+                    self.config.stop_loss_pct = float(sl)
+                if timeout is not None:
+                    self.config.order_timeout_sec = int(timeout)
+                if size is not None:
+                    if market == "futures":
+                        self.config.futures_position_size_usdt = float(size)
+                    else:
+                        self.config.position_size_usdt = float(size)
+
+                logger.info(
+                    f"📱 Params → TP={self.config.take_profit_pct:.3%} "
+                    f"SL={self.config.stop_loss_pct:.3%} "
+                    f"timeout={self.config.order_timeout_sec}s "
+                    f"size={size}$"
+                )
+                self.add_log("info", f"⚙️ Params: TP={self.config.take_profit_pct:.2%} SL={self.config.stop_loss_pct:.2%}")
+                return web.json_response({"ok": True})
+
             return web.json_response({"ok": False, "msg": "Comando sconosciuto"})
+
         except Exception as e:
             return web.json_response({"ok": False, "msg": str(e)}, status=500)
 
-    # MASTER ENDPOINTS
+    # ── MASTER ENDPOINTS ─────────────────────────────────────────────
 
     async def _handle_master_report(self, request):
         if not self._check_master(request):
@@ -267,3 +311,24 @@ class APIServer:
             losses=getattr(rm, 'losing_trades', 0),
         )
         return web.json_response({"ok": True, "msg": "Snapshot salvato"})
+```
+
+---
+
+**Per le variabili Render** — no, non devi aggiungere nulla di nuovo. I parametri ora vengono inviati in tempo reale dall'app tramite il comando `set_params`.
+
+Le uniche variabili che devi avere su Render sono quelle già esistenti:
+```
+BINANCE_SPOT_API_KEY = ...
+BINANCE_SPOT_API_SECRET = ...
+BINANCE_FUTURES_API_KEY = ...
+BINANCE_FUTURES_API_SECRET = ...
+TESTNET = true
+ENABLE_SPOT = false
+ENABLE_FUTURES = true
+TAKE_PROFIT_PCT = 0.002
+STOP_LOSS_PCT = 0.001
+ORDER_TIMEOUT_SEC = 180
+FUTURES_POSITION_SIZE_USDT = 50
+MASTER_TOKEN = scalpbot_master_2024
+PORT = 10000
