@@ -161,16 +161,195 @@ class APIServer:
             remaining = int(until - time.time())
             if remaining > 0:
                 cooldowns[pair] = remaining
-current_params = {
-    "tp_pct": round(self.config.take_profit_pct * 100, 3),
-    "sl_pct": round(self.config.stop_loss_pct * 100, 3),
-    "timeout": self.config.order_timeout_sec,
-    "spot_size": self.config.position_size_usdt,
-    "futures_size": self.config.futures_position_size_usdt,
-    "spot_tp_pct": round(self.config.spot_take_profit_pct * 100, 3),
-    "spot_sl_pct": round(self.config.spot_stop_loss_pct * 100, 3),
-    "spot_timeout": self.config.spot_order_timeout_sec,
-    "spot_enabled": self.config.enable_spot,
-    "futures_enabled": self.config.enable_futures,
-}
 
+        # Parametri attuali
+        current_params = {
+            "tp_pct": round(self.config.take_profit_pct * 100, 3),
+            "sl_pct": round(self.config.stop_loss_pct * 100, 3),
+            "timeout": self.config.order_timeout_sec,
+            "spot_size": self.config.position_size_usdt,
+            "futures_size": self.config.futures_position_size_usdt,
+            "spot_tp_pct": round(self.config.spot_take_profit_pct * 100, 3),
+            "spot_sl_pct": round(self.config.spot_stop_loss_pct * 100, 3),
+            "spot_timeout": self.config.spot_order_timeout_sec,
+            "spot_enabled": self.config.enable_spot,
+            "futures_enabled": self.config.enable_futures,
+        }
+
+        return web.json_response({
+            "status": status,
+            "capital": round(rm.daily_start_capital, 2),
+            "daily_pnl": round(rm.daily_pnl, 4),
+            "wins": getattr(rm, 'winning_trades', 0),
+            "losses": getattr(rm, 'losing_trades', 0),
+            "trades": trades,
+            "active_pairs": list(self.bot.strategies.keys()),
+            "target_pct": self.config.daily_profit_target_pct * 100,
+            "risk_mode": "high" if self.config.daily_profit_target_pct >= 0.15 else "low",
+            "log": self._log_buffer[-30:],
+            "strategies": strategies_data,
+            "cooldowns": cooldowns,
+            "params": current_params,
+        })
+
+    async def _handle_command(self, request):
+        try:
+            body = await request.json()
+            cmd = body.get("command", "")
+            logger.info(f"📱 Comando: {cmd}")
+            self.add_log("info", f"📱 App: {cmd}")
+
+            if cmd == "stop":
+                asyncio.create_task(self.bot.stop())
+                return web.json_response({"ok": True})
+
+            elif cmd == "start":
+                if not self.bot.running:
+                    asyncio.create_task(self.bot.start())
+                return web.json_response({"ok": True})
+
+            elif cmd == "pause":
+                self.bot.risk_manager._target_hit = True
+                return web.json_response({"ok": True})
+
+            elif cmd == "restart":
+                asyncio.create_task(self.bot.stop())
+                await asyncio.sleep(2)
+                asyncio.create_task(self.bot.start())
+                return web.json_response({"ok": True})
+
+            elif cmd == "emergency_stop":
+                await self.bot.order_manager.close_all_positions()
+                return web.json_response({"ok": True})
+
+            elif cmd == "set_risk":
+                level = body.get("value", "high")
+                target = body.get("target", 20) / 100
+                self.config.daily_profit_target_pct = target
+                self.bot.risk_manager._target_hit = False
+                self.bot.risk_manager.daily_pnl = 0
+                return web.json_response({"ok": True})
+
+            elif cmd == "set_market":
+                market = body.get("market", "spot")
+                enabled = body.get("enabled", True)
+                if market == "spot":
+                    self.config.enable_spot = enabled
+                    # Toggle esclusivo — disattiva futures se spot attivato
+                    if enabled:
+                        self.config.enable_futures = False
+                        # Usa parametri spot
+                        self.config.take_profit_pct = self.config.spot_take_profit_pct
+                        self.config.stop_loss_pct = self.config.spot_stop_loss_pct
+                        self.config.order_timeout_sec = self.config.spot_order_timeout_sec
+                elif market == "futures":
+                    self.config.enable_futures = enabled
+                    # Toggle esclusivo — disattiva spot se futures attivato
+                    if enabled:
+                        self.config.enable_spot = False
+                        # Usa parametri futures da config
+                        self.config.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "0.002"))
+                        self.config.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "0.001"))
+                        self.config.order_timeout_sec = int(os.getenv("ORDER_TIMEOUT_SEC", "180"))
+                save_state(self.config)
+                logger.info(
+                    f"📱 {market.upper()} {'attivato' if enabled else 'disattivato'} "
+                    f"| spot={self.config.enable_spot} futures={self.config.enable_futures}"
+                )
+                self.add_log(
+                    "info",
+                    f"🔄 {market.upper()} {'ON' if enabled else 'OFF'} "
+                    f"| TP={self.config.take_profit_pct:.2%}"
+                )
+                return web.json_response({"ok": True})
+
+            elif cmd == "set_params":
+                tp      = body.get("tp")
+                sl      = body.get("sl")
+                timeout = body.get("timeout")
+                size    = body.get("size")
+                market  = body.get("market", "futures")
+
+                if tp is not None:
+                    self.config.take_profit_pct = float(tp)
+                    if market == "spot":
+                        self.config.spot_take_profit_pct = float(tp)
+                if sl is not None:
+                    self.config.stop_loss_pct = float(sl)
+                    if market == "spot":
+                        self.config.spot_stop_loss_pct = float(sl)
+                if timeout is not None:
+                    self.config.order_timeout_sec = int(timeout)
+                    if market == "spot":
+                        self.config.spot_order_timeout_sec = int(timeout)
+                if size is not None:
+                    if market == "futures":
+                        self.config.futures_position_size_usdt = float(size)
+                    else:
+                        self.config.position_size_usdt = float(size)
+
+                save_state(self.config)
+                logger.info(
+                    f"📱 Params [{market}] → TP={self.config.take_profit_pct:.3%} "
+                    f"SL={self.config.stop_loss_pct:.3%} "
+                    f"timeout={self.config.order_timeout_sec}s "
+                    f"size={size}$"
+                )
+                self.add_log(
+                    "info",
+                    f"⚙️ [{market.upper()}] TP={self.config.take_profit_pct:.2%} "
+                    f"SL={self.config.stop_loss_pct:.2%} "
+                    f"timeout={self.config.order_timeout_sec}s"
+                )
+                return web.json_response({"ok": True})
+
+            return web.json_response({"ok": False, "msg": "Comando sconosciuto"})
+
+        except Exception as e:
+            logger.error(f"Command error: {e}")
+            return web.json_response({"ok": False, "msg": str(e)}, status=500)
+
+    # MASTER ENDPOINTS
+
+    async def _handle_master_report(self, request):
+        if not self._check_master(request):
+            return web.json_response({"ok": False, "msg": "Unauthorized"}, status=401)
+        target_date = request.rel_url.query.get("date", None)
+        report = db.get_daily_report(target_date)
+        return web.json_response({"ok": True, "report": report})
+
+    async def _handle_master_stats(self, request):
+        if not self._check_master(request):
+            return web.json_response({"ok": False, "msg": "Unauthorized"}, status=401)
+        stats = db.get_overall_stats()
+        rm = self.bot.risk_manager
+        stats['current'] = {
+            "capital": round(rm.daily_start_capital, 2),
+            "daily_pnl": round(rm.daily_pnl, 4),
+            "wins_today": getattr(rm, 'winning_trades', 0),
+            "losses_today": getattr(rm, 'losing_trades', 0),
+            "running": self.bot.running,
+        }
+        return web.json_response({"ok": True, "stats": stats})
+
+    async def _handle_master_export(self, request):
+        if not self._check_master(request):
+            return web.json_response({"ok": False, "msg": "Unauthorized"}, status=401)
+        csv = db.export_csv()
+        return web.Response(
+            text=csv,
+            content_type='text/csv',
+            headers={'Content-Disposition': 'attachment; filename="scalpbot_trades.csv"'}
+        )
+
+    async def _handle_master_snapshot(self, request):
+        if not self._check_master(request):
+            return web.json_response({"ok": False, "msg": "Unauthorized"}, status=401)
+        rm = self.bot.risk_manager
+        db.save_snapshot(
+            capital=rm.daily_start_capital,
+            daily_pnl=rm.daily_pnl,
+            wins=getattr(rm, 'winning_trades', 0),
+            losses=getattr(rm, 'losing_trades', 0),
+        )
+        return web.json_response({"ok": True, "msg": "Snapshot salvato"})
