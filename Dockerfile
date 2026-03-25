@@ -5,4 +5,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN mkdir -p logs
 EXPOSE 10000
+STOPSIGNAL SIGINT
 CMD ["python3", "-u", "main.py"]
