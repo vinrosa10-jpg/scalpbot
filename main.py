@@ -8,14 +8,35 @@ from loguru import logger
 from config import Config
 from bot import ScalpingBot
 from api_server import APIServer
+import database as db
 
 def setup_logging():
     logger.remove()
     logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}", level="INFO")
     os.makedirs("logs", exist_ok=True)
 
+async def snapshot_loop(bot, interval=3600):
+    """Salva snapshot del PnL ogni ora."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            rm = bot.risk_manager
+            db.save_snapshot(
+                capital=rm.daily_start_capital,
+                daily_pnl=rm.daily_pnl,
+                wins=getattr(rm, 'winning_trades', 0),
+                losses=getattr(rm, 'losing_trades', 0),
+            )
+            logger.info(f"📸 Snapshot salvato | PnL: {rm.daily_pnl:+.4f} USDT")
+        except Exception as e:
+            logger.error(f"Snapshot error: {e}")
+
 async def main():
     setup_logging()
+
+    # Inizializza database
+    db.init_db()
+
     config = Config.load()
     port = int(os.environ.get("PORT", 10000))
 
@@ -53,6 +74,7 @@ async def main():
     loop.add_signal_handler(signal.SIGTERM, handle_sigterm)
 
     bot_task = asyncio.create_task(bot.start())
+    snapshot_task = asyncio.create_task(snapshot_loop(bot))
 
     def on_bot_error(task):
         if not task.cancelled() and task.exception():
@@ -62,6 +84,7 @@ async def main():
     bot_task.add_done_callback(on_bot_error)
 
     await stop_event.wait()
+    snapshot_task.cancel()
 
 if __name__ == "__main__":
     asyncio.run(main())
