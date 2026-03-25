@@ -1,144 +1,95 @@
-"""
-API Server - Espone lo stato del bot all'app iOS via HTTP.
-"""
-
+#!/usr/bin/env python3
 import asyncio
+import signal
+import sys
 import os
-from aiohttp import web
+import time
 from loguru import logger
-from datetime import datetime
+from config import Config
+from bot import ScalpingBot
+from api_server import APIServer
+import database as db
 
+def setup_logging():
+    logger.remove()
+    logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | {message}", level="INFO")
+    os.makedirs("logs", exist_ok=True)
 
-class APIServer:
-    def __init__(self, bot, config):
-        self.bot = bot
-        self.config = config
-        self.port = int(os.environ.get("PORT", 8080))
-        self._app = web.Application()
-        self._runner = None
-        self._log_buffer = []
-
-    def add_log(self, type_: str, msg: str):
-        now = datetime.now().strftime("%H:%M:%S")
-        self._log_buffer.append({"type": type_, "msg": msg, "time": now})
-        if len(self._log_buffer) > 50:
-            self._log_buffer.pop(0)
-
-    async def start(self):
-        self._app.router.add_get('/',         self._handle_root)
-        self._app.router.add_get('/status',   self._handle_status)
-        self._app.router.add_post('/command', self._handle_command)
-        self._app.router.add_get('/health',   self._handle_health)
-        self._app.middlewares.append(self._cors_middleware)
-
-        self._runner = web.AppRunner(self._app)
-        await self._runner.setup()
-        site = web.TCPSite(self._runner, '0.0.0.0', self.port)
-        await site.start()
-        logger.info(f"📱 API Server su porta {self.port}")
-
-    async def stop(self):
-        if self._runner:
-            await self._runner.cleanup()
-
-    @web.middleware
-    async def _cors_middleware(self, request, handler):
-        if request.method == 'OPTIONS':
-            return web.Response(headers={
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type',
-            })
-        response = await handler(request)
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        return response
-
-    async def _handle_root(self, request):
-        return web.json_response({"ok": True, "service": "ScalpBot", "status": "running"})
-
-    async def _handle_health(self, request):
-        return web.json_response({"ok": True})
-
-    async def _handle_status(self, request):
-        rm = self.bot.risk_manager
-        om = self.bot.order_manager
-
-        trades = []
-        for key, trade in list(om.trades.items()):  # fix: list() evita RuntimeError
-            try:
-                ticker = await self.bot.client.get_ticker(trade.pair, trade.market)
-                current = float(ticker["price"]) if ticker else trade.entry_price
-                pnl = (current - trade.entry_price) * trade.qty if trade.side == "LONG" else (trade.entry_price - current) * trade.qty
-                trades.append({
-                    "symbol": trade.pair,
-                    "side": trade.side,
-                    "market": trade.market,
-                    "pnl": round(pnl, 4),
-                    "entry": trade.entry_price,
-                })
-            except Exception:
-                continue
-
-        if not self.bot.running:
-            status = "stopped"
-        elif rm.is_daily_target_hit():
-            status = "target_hit"
-        elif rm._target_hit:
-            status = "paused"
-        else:
-            status = "running"
-
-        return web.json_response({
-            "status": status,
-            "capital": round(rm.daily_start_capital, 2),
-            "daily_pnl": round(rm.daily_pnl, 4),
-            "wins": getattr(rm, 'winning_trades', 0),
-            "losses": getattr(rm, 'losing_trades', 0),
-            "trades": trades,
-            "active_pairs": list(self.bot.strategies.keys()),
-            "target_pct": self.config.daily_profit_target_pct * 100,
-            "risk_mode": "high" if self.config.daily_profit_target_pct >= 0.15 else "low",
-            "log": self._log_buffer[-20:],
-        })
-
-    async def _handle_command(self, request):
+async def snapshot_loop(bot, interval=3600):
+    """Salva snapshot del PnL ogni ora."""
+    while True:
+        await asyncio.sleep(interval)
         try:
-            body = await request.json()
-            cmd = body.get("command", "")
-            logger.info(f"📱 Comando: {cmd}")
-            self.add_log("info", f"📱 App: {cmd}")
-
-            if cmd == "stop":
-                asyncio.create_task(self.bot.stop())
-                return web.json_response({"ok": True})
-            elif cmd == "start":
-                if not self.bot.running:
-                    asyncio.create_task(self.bot.start())
-                return web.json_response({"ok": True})
-            elif cmd == "pause":
-                self.bot.risk_manager._target_hit = True
-                return web.json_response({"ok": True})
-            elif cmd == "restart":
-                asyncio.create_task(self.bot.stop())
-                await asyncio.sleep(2)
-                asyncio.create_task(self.bot.start())
-                return web.json_response({"ok": True})
-            elif cmd == "emergency_stop":
-                await self.bot.order_manager.close_all_positions()
-                return web.json_response({"ok": True})
-            elif cmd == "set_risk":
-                level = body.get("value", "high")
-                target = body.get("target", 20) / 100
-                self.config.daily_profit_target_pct = target
-                self.bot.risk_manager._target_hit = False
-                self.bot.risk_manager.daily_pnl = 0
-                return web.json_response({"ok": True})
-
-            return web.json_response({"ok": False, "msg": "Comando sconosciuto"})
+            rm = bot.risk_manager
+            db.save_snapshot(
+                capital=rm.daily_start_capital,
+                daily_pnl=rm.daily_pnl,
+                wins=getattr(rm, 'winning_trades', 0),
+                losses=getattr(rm, 'losing_trades', 0),
+            )
+            logger.info(f"📸 Snapshot salvato | PnL: {rm.daily_pnl:+.4f} USDT")
         except Exception as e:
-            return web.json_response({"ok": False, "msg": str(e)}, status=500)
+            logger.error(f"Snapshot error: {e}")
 
+async def main():
+    setup_logging()
 
+    # Inizializza database
+    db.init_db()
 
+    config = Config.load()
+    port = int(os.environ.get("PORT", 10000))
+
+    logger.info("🚀 Avvio Binance Scalping Bot")
+    logger.info(f"🎯 Target: disabilitato — bot perpetuo")
+    logger.info(f"🌐 Porta: {port}")
+    logger.info(f"📈 Spot: {'✅' if config.enable_spot else '❌'} | Futures: {'✅' if config.enable_futures else '❌'}")
+
+    bot = ScalpingBot(config)
+    api = APIServer(bot, config)
+    api.port = port
+
+    await api.start()
+    logger.info(f"✅ API Server attivo su 0.0.0.0:{port}")
+
+    stop_event = asyncio.Event()
+    start_time = time.time()
+
+    async def shutdown():
+        logger.warning("🛑 Shutdown in corso...")
+        stop_event.set()
+        await bot.stop()
+        await api.stop()
+
+    def handle_sigterm():
+        uptime = time.time() - start_time
+        if uptime < 180:
+            logger.warning(f"⚠️ SIGTERM ignorato (uptime {uptime:.1f}s — deploy rolling)")
+            return
+        logger.warning("🛑 SIGTERM ricevuto — shutdown...")
+        asyncio.create_task(shutdown())
+
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGINT,  lambda: asyncio.create_task(shutdown()))
+    loop.add_signal_handler(signal.SIGTERM, handle_sigterm)
+
+    bot_task = asyncio.create_task(bot.start())
+    snapshot_task = asyncio.create_task(snapshot_loop(bot))
+
+    def on_bot_error(task):
+        if not task.cancelled() and task.exception():
+            logger.error(f"💥 Bot crashato: {task.exception()}")
+            logger.info("🔄 API server rimane attivo")
+
+    bot_task.add_done_callback(on_bot_error)
+
+    await stop_event.wait()
+    snapshot_task.cancel()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Aggiungi anche su **Render → Environment**:
+```
+MASTER_TOKEN = scalpbot_master_2024
