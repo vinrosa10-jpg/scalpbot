@@ -1,44 +1,38 @@
 """
-Bot Configuration - con persistenza su disco per parametri dinamici
+Bot Configuration - con persistenza su database SQLite
 """
 import os
-import json
 from dataclasses import dataclass, field
 from typing import List
 from dotenv import load_dotenv
 load_dotenv()
 
-STATE_FILE = "/app/bot_state.json"
-
 
 def _load_state() -> dict:
-    """Carica stato dinamico salvato su disco."""
+    """Carica stato dinamico dal database SQLite."""
     try:
-        if os.path.exists(STATE_FILE):
-            with open(STATE_FILE, 'r') as f:
-                return json.load(f)
+        import database as db
+        return db.load_all_state()
     except Exception:
-        pass
-    return {}
+        return {}
 
 
 def save_state(config: "Config"):
-    """Salva parametri dinamici su disco."""
+    """Salva parametri dinamici nel database SQLite."""
     try:
-        state = {
-            "enable_spot": config.enable_spot,
-            "enable_futures": config.enable_futures,
-            "take_profit_pct": config.take_profit_pct,
-            "stop_loss_pct": config.stop_loss_pct,
-            "order_timeout_sec": config.order_timeout_sec,
-            "position_size_usdt": config.position_size_usdt,
-            "futures_position_size_usdt": config.futures_position_size_usdt,
-            "spot_take_profit_pct": config.spot_take_profit_pct,
-            "spot_stop_loss_pct": config.spot_stop_loss_pct,
-            "spot_order_timeout_sec": config.spot_order_timeout_sec,
-        }
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f)
+        import database as db
+        db.save_all_state({
+            "enable_spot": str(config.enable_spot).lower(),
+            "enable_futures": str(config.enable_futures).lower(),
+            "take_profit_pct": str(config.take_profit_pct),
+            "stop_loss_pct": str(config.stop_loss_pct),
+            "order_timeout_sec": str(config.order_timeout_sec),
+            "position_size_usdt": str(config.position_size_usdt),
+            "futures_position_size_usdt": str(config.futures_position_size_usdt),
+            "spot_take_profit_pct": str(config.spot_take_profit_pct),
+            "spot_stop_loss_pct": str(config.spot_stop_loss_pct),
+            "spot_order_timeout_sec": str(config.spot_order_timeout_sec),
+        })
     except Exception as e:
         pass
 
@@ -50,8 +44,9 @@ class Config:
     futures_api_key: str = ""
     futures_api_secret: str = ""
 
+    # Mercati — default TUTTO FALSE, decide l'utente dall'app
     enable_spot: bool = False
-    enable_futures: bool = True
+    enable_futures: bool = False
 
     auto_select_pairs: bool = False
     max_pairs: int = 3
@@ -64,14 +59,14 @@ class Config:
     ob_imbalance_threshold: float = 0.62
     ob_depth_levels: int = 10
 
-    # Futures params
+    # Parametri futures
     futures_position_size_usdt: float = 50.0
     take_profit_pct: float = 0.002
     stop_loss_pct: float = 0.001
     order_timeout_sec: int = 180
     futures_leverage: int = 3
 
-    # Spot params separati
+    # Parametri spot separati
     position_size_usdt: float = 25.0
     spot_take_profit_pct: float = 0.006
     spot_stop_loss_pct: float = 0.003
@@ -96,25 +91,26 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
-        # 1 — Carica da variabili ambiente (default Render)
+        # 1 — Carica da variabili ambiente Render
         cfg = cls(
             api_key=os.getenv("BINANCE_SPOT_API_KEY", ""),
             api_secret=os.getenv("BINANCE_SPOT_API_SECRET", ""),
             futures_api_key=os.getenv("BINANCE_FUTURES_API_KEY", ""),
             futures_api_secret=os.getenv("BINANCE_FUTURES_API_SECRET", ""),
-            enable_spot=os.getenv("ENABLE_SPOT", "false").lower() == "true",
-            enable_futures=os.getenv("ENABLE_FUTURES", "true").lower() == "true",
+            # Mercati — default false, sovrascrive DB
+            enable_spot=False,
+            enable_futures=False,
             testnet=os.getenv("TESTNET", "true").lower() == "true",
             ob_imbalance_threshold=float(os.getenv("OB_IMBALANCE_THRESHOLD", "0.62")),
             ema_fast=int(os.getenv("EMA_FAST", "9")),
             ema_slow=int(os.getenv("EMA_SLOW", "21")),
-            # Futures
+            # Futures default
             futures_position_size_usdt=float(os.getenv("FUTURES_POSITION_SIZE_USDT", "50")),
             take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.002")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.001")),
             order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "180")),
             futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "3")),
-            # Spot
+            # Spot default
             position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "25")),
             spot_take_profit_pct=float(os.getenv("SPOT_TAKE_PROFIT_PCT", "0.006")),
             spot_stop_loss_pct=float(os.getenv("SPOT_STOP_LOSS_PCT", "0.003")),
@@ -131,28 +127,39 @@ class Config:
             kline_interval=os.getenv("KLINE_INTERVAL", "1m"),
         )
 
-        # 2 — Sovrascrive con stato salvato su disco (priorità app)
+        # 2 — Sovrascrive con stato salvato nel DB (priorità assoluta)
         state = _load_state()
         if state:
             if "enable_spot" in state:
-                cfg.enable_spot = state["enable_spot"]
+                cfg.enable_spot = state["enable_spot"] == "true"
             if "enable_futures" in state:
-                cfg.enable_futures = state["enable_futures"]
+                cfg.enable_futures = state["enable_futures"] == "true"
             if "take_profit_pct" in state:
-                cfg.take_profit_pct = state["take_profit_pct"]
+                cfg.take_profit_pct = float(state["take_profit_pct"])
             if "stop_loss_pct" in state:
-                cfg.stop_loss_pct = state["stop_loss_pct"]
+                cfg.stop_loss_pct = float(state["stop_loss_pct"])
             if "order_timeout_sec" in state:
-                cfg.order_timeout_sec = state["order_timeout_sec"]
+                cfg.order_timeout_sec = int(state["order_timeout_sec"])
             if "futures_position_size_usdt" in state:
-                cfg.futures_position_size_usdt = state["futures_position_size_usdt"]
+                cfg.futures_position_size_usdt = float(state["futures_position_size_usdt"])
             if "position_size_usdt" in state:
-                cfg.position_size_usdt = state["position_size_usdt"]
+                cfg.position_size_usdt = float(state["position_size_usdt"])
             if "spot_take_profit_pct" in state:
-                cfg.spot_take_profit_pct = state["spot_take_profit_pct"]
+                cfg.spot_take_profit_pct = float(state["spot_take_profit_pct"])
             if "spot_stop_loss_pct" in state:
-                cfg.spot_stop_loss_pct = state["spot_stop_loss_pct"]
+                cfg.spot_stop_loss_pct = float(state["spot_stop_loss_pct"])
             if "spot_order_timeout_sec" in state:
-                cfg.spot_order_timeout_sec = state["spot_order_timeout_sec"]
+                cfg.spot_order_timeout_sec = int(state["spot_order_timeout_sec"])
+
+            from loguru import logger
+            logger.info(
+                f"💾 Stato DB caricato | "
+                f"Spot={'✅' if cfg.enable_spot else '❌'} "
+                f"Futures={'✅' if cfg.enable_futures else '❌'} "
+                f"TP={cfg.take_profit_pct:.2%}"
+            )
+        else:
+            from loguru import logger
+            logger.info("💾 Nessuno stato nel DB — bot in attesa comandi dall'app")
 
         return cfg
