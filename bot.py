@@ -1,6 +1,5 @@
 """
 ScalpingBot - Main orchestrator
-Manages WebSocket feeds, strategy signals, and order execution.
 """
 
 import asyncio
@@ -20,6 +19,7 @@ class ScalpingBot:
     def __init__(self, config: Config):
         self.config = config
         self.running = False
+        self.api_server = None  # Viene impostato da main.py
 
         self.client = BinanceClient(config)
         self.risk_manager = RiskManager(config)
@@ -30,37 +30,45 @@ class ScalpingBot:
         self.eod_manager = EndOfDayManager(self.client, config)
         self.risk_manager.set_eod_manager(self.eod_manager)
 
+    def set_api_server(self, api_server):
+        """Collega l'API server per inviare log all'app mobile."""
+        self.api_server = api_server
+        self.order_manager.api_server = api_server
+
+    def _log(self, type_: str, msg: str):
+        """Invia log sia a loguru che all'app mobile."""
+        if type_ == 'win':
+            logger.success(msg)
+        elif type_ == 'loss':
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+        if self.api_server:
+            self.api_server.add_log(type_, msg)
+
     async def start(self):
         self.running = True
-        logger.info("✅ Bot initialized, connecting to Binance...")
+        self._log('info', '🤖 Bot avviato')
 
         if self.config.testnet:
-            logger.warning("⚠️  TESTNET MODE - No real money at risk")
+            self._log('warn', '⚠️ TESTNET MODE')
 
-        # Sincronizza clock con Binance — fix errore -1022
         await self.client.sync_clock()
 
-        # Seleziona coppie automaticamente o da config
         if self.config.auto_select_pairs:
-            logger.info("🔍 Analisi mercato per selezione coppie...")
+            self._log('info', '🔍 Selezione coppie automatica...')
             await self.pair_selector.start()
             pairs = await self.pair_selector.get_pairs()
         else:
             pairs = self.config.pairs
-            logger.info(f"📋 Coppie manuali: {pairs}")
+            self._log('info', f'📋 Coppie: {", ".join(pairs)}')
 
-        # Registra strategia per ogni coppia
         for pair in pairs:
             self.strategies[pair] = ScalpingStrategy(pair, self.config)
 
-        # Setup leverage for futures
         if self.config.enable_futures:
-            await self.client.set_leverage_all(
-                pairs,
-                self.config.futures_leverage
-            )
+            await self.client.set_leverage_all(pairs, self.config.futures_leverage)
 
-        # Start data streams
         await self.data_feed.start(
             pairs=pairs,
             on_kline=self._on_kline,
@@ -68,18 +76,17 @@ class ScalpingBot:
             on_trade=self._on_trade,
         )
 
-        # Main loop - monitor open orders
         while self.running:
             await self.order_manager.monitor_open_orders()
             await asyncio.sleep(1)
 
     async def stop(self):
-        logger.info("🛑 Stopping bot...")
+        self._log('info', '🛑 Stopping bot...')
         self.running = False
         await self.order_manager.close_all_positions()
         await self.data_feed.stop()
         await self.pair_selector.stop()
-        logger.info("✅ Bot stopped cleanly.")
+        self._log('info', '✅ Bot stopped cleanly.')
 
     async def _on_kline(self, pair: str, kline_data: dict):
         strategy = self.strategies.get(pair)
@@ -110,7 +117,7 @@ class ScalpingBot:
 
         if self.risk_manager.is_daily_limit_hit():
             if self.running:
-                logger.error("❌ Daily loss limit reached. Stopping bot.")
+                self._log('loss', '❌ Daily loss limit raggiunto. Stop.')
                 await self.stop()
             return
 
@@ -123,7 +130,7 @@ class ScalpingBot:
         if not self.risk_manager.can_open_trade(pair):
             return
 
-        logger.info(f"📡 Signal: {signal} | {pair}")
+        self._log('info', f'📡 Segnale: {signal} | {pair}')
 
         if self.config.enable_spot:
             await self.order_manager.open_trade(pair, signal, market="SPOT")
