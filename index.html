@@ -657,7 +657,7 @@ var MASTER_USER='admin';
 var S={url:DEF_URL,cap:100,pnl:0,tgt:20,wins:0,loss:0,trades:[],log:[],status:'stopped',conn:false,_fails:0,strategies:{},cooldowns:{}};
 var poll=null,pnlH=[],tradeH=[],demo=false;
 var btcWs=null,btcCandles=[],btcTf='1m',btcPrevClose=0,btcSymbol='BTCUSDT';
-var PAIR_META={'BTCUSDT':{icon:'₿',label:'BTC / USDT',color:'#f7931a'},'ETHUSDT':{icon:'Ξ',label:'ETH / USDT',color:'#627eea'},'BNBUSDT':{icon:'⬡',label:'BNB / USDT',color:'#f3ba2f'}};
+var PAIR_META={'BTCUSDT':{icon:'B',label:'BTC / USDT',color:'#f7931a'},'ETHUSDT':{icon:'E',label:'ETH / USDT',color:'#627eea'},'BNBUSDT':{icon:'B',label:'BNB / USDT',color:'#f3ba2f'}};
 
 function setBtcPair(sym,btn){
 btcSymbol=sym;
@@ -745,12 +745,12 @@ var obHtml=’<div class="mkt-ob"><span class="mkt-ob-label">BUY</span><div clas
 var cdTime=S.cooldowns&&S.cooldowns[pair];
 var statusHtml=’’;
 if(cdTime&&cdTime>0){
-statusHtml=’<div class="mkt-cooldown">⏳ Cooldown attivo: ‘+cdTime+‘s rimanenti</div>’;
+statusHtml=’<div class="mkt-cooldown">… Cooldown attivo: ‘+cdTime+‘s rimanenti</div>’;
 }else if(st.missing&&st.missing.length>0){
 statusHtml=’<div class="mkt-missing"><div class="mkt-missing-label">Condizioni mancanti</div>’
 +st.missing.map(m=>’<div class="mkt-missing-item">’+m+’</div>’).join(’’)+’</div>’;
 }else{
-statusHtml=’<div class="mkt-ready">✅ Segnale PA rilevato – pronto!</div>’;
+statusHtml=’<div class="mkt-ready">[OK] Segnale PA rilevato – pronto!</div>’;
 }
 return ‘<div class="mkt-pair-row"><div class="mkt-pair-top"><div class="mkt-pair-name">’+pair+’</div>’+trendHtml+’</div>’+emasHtml+obHtml+statusHtml+’</div>’;
 }).join(’’);
@@ -873,14 +873,14 @@ document.getElementById(‘tspot’).checked=true;
 document.getElementById(‘tfut’).checked=false;
 // Aggiorna parametri per spot
 var s=JSON.parse(localStorage.getItem(‘sba’)||’{}’);
-toast(‘✅ Spot attivato · TP ‘+( s.tp_spot||0.6)+’%’,‘green’);
+toast(’[OK] Spot attivato . TP ‘+( s.tp_spot||0.6)+’%’,‘green’);
 toggleMkt(‘spot’,true);toggleMkt(‘futures’,false);
 _sendParams(s);
 }else{
 document.getElementById(‘tfut’).checked=true;
 document.getElementById(‘tspot’).checked=false;
 var s=JSON.parse(localStorage.getItem(‘sba’)||’{}’);
-toast(‘✅ Futures attivato · TP ‘+(s.tp_fut||0.2)+’%’,‘green’);
+toast(’[OK] Futures attivato . TP ‘+(s.tp_fut||0.2)+’%’,‘green’);
 toggleMkt(‘futures’,true);toggleMkt(‘spot’,false);
 _sendParams(s);
 }
@@ -937,7 +937,7 @@ document.getElementById(‘spill’).className=’status-pill ’+sv[0];document
 renderPos();renderLog();renderHistory();drawPnlChart();renderMarketStatus();updatePairButtons();
 }
 
-function avatarFor(s){if(s.startsWith(‘BTC’))return’<div class="pos-avatar btc">₿</div>’;if(s.startsWith(‘ETH’))return’<div class="pos-avatar eth">Ξ</div>’;if(s.startsWith(‘BNB’))return’<div class="pos-avatar bnb">⬡</div>’;return’<div class="pos-avatar def">◆</div>’;}
+function avatarFor(s){if(s.startsWith(‘BTC’))return’<div class="pos-avatar btc">B</div>’;if(s.startsWith(‘ETH’))return’<div class="pos-avatar eth">E</div>’;if(s.startsWith(‘BNB’))return’<div class="pos-avatar bnb">B</div>’;return’<div class="pos-avatar def">X</div>’;}
 function renderPos(){
 var el=document.getElementById(‘poslist’);
 if(!S.trades.length){el.innerHTML=’<div class="empty">Nessuna posizione aperta</div>’;return;}
@@ -971,7 +971,7 @@ return '<div class="pos-card">'
   +'<div class="pos-progress-wrap">'
   +'<div class="pos-progress-row"><span class="pos-progress-label">TP</span>'
   +'<div class="pos-progress-bar"><div class="pos-progress-fill tp'+(tpNear?' near':'')+'" style="width:'+tp_progress+'%"></div></div>'
-  +'<span class="pos-progress-pct tp'+(tpNear?' near':'')+'\">'+(tpNear?'🔥':'')+Math.round(tp_progress)+'%</span></div>'
+  +'<span class="pos-progress-pct tp'+(tpNear?' near':'')+'\">'+(tpNear?'?':'')+Math.round(tp_progress)+'%</span></div>'
   +'<div class="pos-progress-row"><span class="pos-progress-label">SL</span>'
   +'<div class="pos-progress-bar"><div class="pos-progress-fill sl" style="width:'+sl_progress+'%"></div></div>'
   +'<span class="pos-progress-pct sl">'+Math.round(sl_progress)+'%</span></div>'
@@ -989,18 +989,18 @@ function drawPnlChart(){var c=document.getElementById(‘pnlChart’),ctx=c.getC
 
 // SCANNER
 async function runScan(){var btn=document.getElementById(‘sbtn’);btn.textContent=’…’;try{var r=await fetch(aurl(’/status’),{signal:AbortSignal.timeout(6000)});var d=await r.json();if(d.active_pairs&&d.active_pairs.length){renderScanData(d.active_pairs);btn.textContent=‘Scan’;return;}}catch(e){}setTimeout(()=>{renderScanDemo();btn.textContent=‘Scan’;},1200);}
-function icoScan(s){var m={BTC:‘₿’,ETH:‘Ξ’,SOL:‘◎’,BNB:‘⬡’,XRP:‘✕’,DOGE:‘Ð’,AVAX:‘▲’,LTC:‘Ł’};for(var k in m)if(s.startsWith(k))return m[k];return’◆’;}
+function icoScan(s){var m={BTC:‘B’,ETH:‘E’,SOL:‘O’,BNB:‘B’,XRP:‘x’,DOGE:‘D’,AVAX:’^’,LTC:‘L’};for(var k in m)if(s.startsWith(k))return m[k];return’X’;}
 function renderScanData(pairs){var n=new Date();document.getElementById(‘slast’).textContent=‘Ultima: ‘+String(n.getHours()).padStart(2,‘0’)+’:’+String(n.getMinutes()).padStart(2,‘0’);buildScan(pairs.map((s,i)=>({s,icon:icoScan(s),vol:Math.round(Math.random()*800+100),chg:(Math.random()*6+1).toFixed(1),rng:(Math.random()*8+2).toFixed(1),score:88-i*6})));}
-function renderScanDemo(){var n=new Date();document.getElementById(‘slast’).textContent=‘Ultima: ‘+String(n.getHours()).padStart(2,‘0’)+’:’+String(n.getMinutes()).padStart(2,‘0’);var raw=[{s:‘SOLUSDT’,icon:‘◎’,vol:610,chg:8.1,rng:9.7},{s:‘AVAXUSDT’,icon:‘▲’,vol:180,chg:7.8,rng:10.2},{s:‘DOGEUSDT’,icon:‘Ð’,vol:290,chg:6.2,rng:8.4},{s:‘XRPUSDT’,icon:‘✕’,vol:520,chg:5.4,rng:7.1},{s:‘ETHUSDT’,icon:‘Ξ’,vol:920,chg:4.8,rng:6.3},{s:‘BTCUSDT’,icon:‘₿’,vol:1842,chg:3.2,rng:4.1}];raw.forEach((p,i)=>p.score=94-i*8+(Math.random()*4-2));raw.sort((a,b)=>b.score-a.score);buildScan(raw);}
-function buildScan(data){document.getElementById(‘scanlist’).innerHTML=data.map((p,i)=>{var sc=p.score,sig,sc2;if(sc>=70){sig=‘🔥 CALDO’;sc2=‘hot’;}else if(sc>=45){sig=‘🌡 TIEPIDO’;sc2=‘warm’;}else{sig=‘❄️ FREDDO’;sc2=‘cold’;}return’<div class="scan-card"><div class="scan-l"><div class="scan-rank">#’+(i+1)+’</div><div class="scan-ico">’+p.icon+’</div><div><div class="scan-name">’+p.s+’</div><div class="scan-vol">$’+p.vol+‘M · ±’+p.chg+’%</div></div></div><div class="scan-r"><div class="scan-score" style="color:'+(sc>=70?'var(--teal)':sc>=45?'var(--yellow)':'var(--text3)')+'">’+Math.round(sc)+’</div><div class="scan-stats">Range ‘+p.rng+’%</div><div class="scan-sig '+sc2+'">’+sig+’</div></div></div>’;}).join(’’);}
+function renderScanDemo(){var n=new Date();document.getElementById(‘slast’).textContent=‘Ultima: ‘+String(n.getHours()).padStart(2,‘0’)+’:’+String(n.getMinutes()).padStart(2,‘0’);var raw=[{s:‘SOLUSDT’,icon:‘O’,vol:610,chg:8.1,rng:9.7},{s:‘AVAXUSDT’,icon:’^’,vol:180,chg:7.8,rng:10.2},{s:‘DOGEUSDT’,icon:‘D’,vol:290,chg:6.2,rng:8.4},{s:‘XRPUSDT’,icon:‘x’,vol:520,chg:5.4,rng:7.1},{s:‘ETHUSDT’,icon:‘E’,vol:920,chg:4.8,rng:6.3},{s:‘BTCUSDT’,icon:‘B’,vol:1842,chg:3.2,rng:4.1}];raw.forEach((p,i)=>p.score=94-i*8+(Math.random()*4-2));raw.sort((a,b)=>b.score-a.score);buildScan(raw);}
+function buildScan(data){document.getElementById(‘scanlist’).innerHTML=data.map((p,i)=>{var sc=p.score,sig,sc2;if(sc>=70){sig=’? CALDO’;sc2=‘hot’;}else if(sc>=45){sig=’? TIEPIDO’;sc2=‘warm’;}else{sig=’?? FREDDO’;sc2=‘cold’;}return’<div class="scan-card"><div class="scan-l"><div class="scan-rank">#’+(i+1)+’</div><div class="scan-ico">’+p.icon+’</div><div><div class="scan-name">’+p.s+’</div><div class="scan-vol">$’+p.vol+‘M . ?’+p.chg+’%</div></div></div><div class="scan-r"><div class="scan-score" style="color:'+(sc>=70?'var(--teal)':sc>=45?'var(--yellow)':'var(--text3)')+'">’+Math.round(sc)+’</div><div class="scan-stats">Range ‘+p.rng+’%</div><div class="scan-sig '+sc2+'">’+sig+’</div></div></div>’;}).join(’’);}
 
 // DEMO
-function demoTick(){S.pnl=Math.max(-S.cap*.1,Math.min(S.cap*S.tgt/100,S.pnl+(Math.random()-.43)*.9));if(Math.random()>.82){var ps=[‘BTCUSDT’,‘ETHUSDT’,‘BNBUSDT’];var pa=ps[Math.floor(Math.random()*ps.length)],si=Math.random()>.5?‘LONG’:‘SHORT’,pn=(Math.random()-.4)*2;if(pn>0)S.wins++;else S.loss++;var n=new Date(),ts=String(n.getHours()).padStart(2,‘0’)+’:’+String(n.getMinutes()).padStart(2,‘0’)+’:’+String(n.getSeconds()).padStart(2,‘0’);tradeH.push({sym:pa,side:si,pnl:pn,time:ts});addLog(pn>0?‘win’:‘loss’,(pn>0?‘✅’:‘❌’)+’ ‘+pa+’ ‘+si+’ ‘+(pn>=0?’+’:’’)+pn.toFixed(3)+’ USDT’);pnlH.push({t:Date.now(),v:S.pnl});if(pnlH.length>60)pnlH.shift();}updateUI();}
+function demoTick(){S.pnl=Math.max(-S.cap*.1,Math.min(S.cap*S.tgt/100,S.pnl+(Math.random()-.43)*.9));if(Math.random()>.82){var ps=[‘BTCUSDT’,‘ETHUSDT’,‘BNBUSDT’];var pa=ps[Math.floor(Math.random()*ps.length)],si=Math.random()>.5?‘LONG’:‘SHORT’,pn=(Math.random()-.4)*2;if(pn>0)S.wins++;else S.loss++;var n=new Date(),ts=String(n.getHours()).padStart(2,‘0’)+’:’+String(n.getMinutes()).padStart(2,‘0’)+’:’+String(n.getSeconds()).padStart(2,‘0’);tradeH.push({sym:pa,side:si,pnl:pn,time:ts});addLog(pn>0?‘win’:‘loss’,(pn>0?’[OK]’:’?’)+’ ‘+pa+’ ‘+si+’ ‘+(pn>=0?’+’:’’)+pn.toFixed(3)+’ USDT’);pnlH.push({t:Date.now(),v:S.pnl});if(pnlH.length>60)pnlH.shift();}updateUI();}
 
 // TOAST
 function toast(msg,col){var t=document.getElementById(‘toast’);t.textContent=msg;t.className=‘toast ‘+(col||’’)+’ show’;setTimeout(()=>t.classList.remove(‘show’),2500);}
 
-// ── GRAFICI ──────────────────────────────────────────────────
+// ?? GRAFICI ??????????????????????????????????????????????????
 var cPair=‘BTCUSDT’,cTf=‘1m’,cWs=null,cCandles=[],cReady=false;
 
 function cInit(){
