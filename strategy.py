@@ -1,10 +1,11 @@
 """
-Scalping Strategy ottimizzata per timeframe 15m
-OBI + EMA Momentum + EMA200 Trend Filter + Conferma volume
+Strategy - Price Action Method
+Pattern: Pin Bar + Engulfing + EMA200 trend filter
+Timeframe: 15m
 """
 
 from collections import deque
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from loguru import logger
 from config import Config
 
@@ -34,69 +35,92 @@ class EMA:
             self.update(p)
 
 
+class Candle:
+    def __init__(self, o, h, l, c):
+        self.open = o
+        self.high = h
+        self.low = l
+        self.close = c
+        self.body = abs(c - o)
+        self.upper_wick = h - max(o, c)
+        self.lower_wick = min(o, c) - l
+        self.total_range = h - l
+        self.bullish = c > o
+        self.bearish = c < o
+
+
 class ScalpingStrategy:
     def __init__(self, pair: str, config: Config):
         self.pair = pair
         self.config = config
 
-        self.ema_fast = EMA(config.ema_fast)   # EMA 9
-        self.ema_slow = EMA(config.ema_slow)   # EMA 21
-        self.ema_trend = EMA(200)              # EMA 200
+        self.ema_trend = EMA(200)
+        self.ema_fast = EMA(config.ema_fast)
+        self.ema_slow = EMA(config.ema_slow)
+
+        # Storico candele chiuse
+        self.candles: deque = deque(maxlen=50)
+        self.current_candle: Optional[Candle] = None
 
         self.bid_volume = 0.0
         self.ask_volume = 0.0
         self.trade_window = deque(maxlen=500)
 
         self.last_close: Optional[float] = None
-        self.last_open: Optional[float] = None
-        self.last_high: Optional[float] = None
-        self.last_low: Optional[float] = None
-        self.prev_close: Optional[float] = None
-
-        self._last_signal: SignalType = "NONE"
         self._warmed_up = False
-        self._signal_count = 0  # quante volte consecutivo stesso segnale
-        self._last_raw_signal: SignalType = "NONE"
+        self._last_signal: SignalType = "NONE"
+        self._last_candle_time: int = 0
 
     async def warm_up_from_api(self, client):
-        """Carica candele storiche per EMA200 accurata."""
         try:
             interval = self.config.kline_interval
             logger.info(f"📊 {self.pair} -- caricamento 200 candele storiche...")
             klines = await client.get_klines(self.pair, interval=interval, limit=220)
-            if klines and len(klines) >= 200:
-                closes = [float(k[4]) for k in klines[:-1]]
-                self.ema_fast.warm_up(closes[-50:])
-                self.ema_slow.warm_up(closes[-50:])
-                self.ema_trend.warm_up(closes)
-                self.last_close = closes[-1]
-                self.prev_close = closes[-2] if len(closes) >= 2 else closes[-1]
+            if klines and len(klines) >= 50:
+                for k in klines[:-1]:
+                    c = Candle(
+                        float(k[1]), float(k[2]),
+                        float(k[3]), float(k[4])
+                    )
+                    self.candles.append(c)
+                    self.ema_trend.update(c.close)
+                    self.ema_fast.update(c.close)
+                    self.ema_slow.update(c.close)
+
+                self.last_close = float(klines[-2][4])
                 self._warmed_up = True
                 logger.info(
                     f"✅ {self.pair} EMA200={self.ema_trend.value:.2f} | "
-                    f"EMA{self.config.ema_fast}={self.ema_fast.value:.2f} | "
-                    f"EMA{self.config.ema_slow}={self.ema_slow.value:.2f}"
+                    f"Candele caricate: {len(self.candles)}"
                 )
             else:
-                logger.warning(f"⚠️ {self.pair} -- dati insufficienti per warm-up")
+                logger.warning(f"⚠️ {self.pair} -- dati insufficienti")
         except Exception as e:
             logger.warning(f"⚠️ {self.pair} warm-up fallito: {e}")
 
     def update_kline(self, data: dict):
         k = data["k"]
-        self.prev_close = self.last_close
-        self.last_close = float(k["c"])
-        self.last_open = float(k["o"])
-        self.last_high = float(k["h"])
-        self.last_low = float(k["l"])
+        o = float(k["o"])
+        h = float(k["h"])
+        l = float(k["l"])
+        c = float(k["c"])
+        t = int(k["t"])
+        is_closed = k.get("x", False)
 
-        # Aggiorna EMA solo su candela chiusa
-        if k.get("x", False):
-            self.ema_fast.update(self.last_close)
-            self.ema_slow.update(self.last_close)
-            self.ema_trend.update(self.last_close)
-            if not self._warmed_up and self.ema_trend.value is not None:
+        self.last_close = c
+        self.current_candle = Candle(o, h, l, c)
+
+        # Aggiorna solo su candela CHIUSA
+        if is_closed and t != self._last_candle_time:
+            self._last_candle_time = t
+            self.candles.append(Candle(o, h, l, c))
+            self.ema_trend.update(c)
+            self.ema_fast.update(c)
+            self.ema_slow.update(c)
+            if not self._warmed_up and self.ema_trend.value:
                 self._warmed_up = True
+            # Reset segnale su nuova candela
+            self._last_signal = "NONE"
 
     def update_orderbook(self, data: dict):
         depth = self.config.ob_depth_levels
@@ -114,111 +138,183 @@ class ScalpingStrategy:
             "buy": not is_buyer_maker,
         })
 
+    def _ob_ratio(self):
+        total = self.bid_volume + self.ask_volume
+        if total == 0:
+            return 0.5, 0.5
+        return self.bid_volume / total, self.ask_volume / total
+
     def _flow(self):
         buy = sum(t["qty"] for t in self.trade_window if t["buy"])
         sell = sum(t["qty"] for t in self.trade_window if t["sell"])
-        return buy, sell
+        total = buy + sell
+        return (buy/total if total > 0 else 0.5,
+                sell/total if total > 0 else 0.5)
 
-    def _candle_bullish(self) -> bool:
-        """Candela corrente bullish."""
-        if self.last_close and self.last_open:
-            return self.last_close > self.last_open
-        return False
+    # ── PRICE ACTION PATTERNS ────────────────────────────────
 
-    def _candle_bearish(self) -> bool:
-        """Candela corrente bearish."""
-        if self.last_close and self.last_open:
-            return self.last_close < self.last_open
-        return False
+    def _is_pin_bar_bullish(self, c: Candle) -> bool:
+        """
+        Pin Bar rialzista — lunga shadow in basso, piccolo body in alto.
+        Segnale di inversione al rialzo.
+        """
+        if c.total_range == 0:
+            return False
+        return (
+            c.lower_wick >= c.total_range * 0.6 and  # shadow >= 60% range
+            c.body <= c.total_range * 0.3 and         # body piccolo
+            c.upper_wick <= c.total_range * 0.2        # poca shadow sopra
+        )
+
+    def _is_pin_bar_bearish(self, c: Candle) -> bool:
+        """
+        Pin Bar ribassista — lunga shadow in alto, piccolo body in basso.
+        Segnale di inversione al ribasso.
+        """
+        if c.total_range == 0:
+            return False
+        return (
+            c.upper_wick >= c.total_range * 0.6 and
+            c.body <= c.total_range * 0.3 and
+            c.lower_wick <= c.total_range * 0.2
+        )
+
+    def _is_bullish_engulfing(self, prev: Candle, curr: Candle) -> bool:
+        """
+        Engulfing rialzista — candela verde che ingloba la rossa precedente.
+        Forte segnale di inversione/continuazione al rialzo.
+        """
+        return (
+            prev.bearish and
+            curr.bullish and
+            curr.open <= prev.close and
+            curr.close >= prev.open and
+            curr.body > prev.body * 0.8
+        )
+
+    def _is_bearish_engulfing(self, prev: Candle, curr: Candle) -> bool:
+        """
+        Engulfing ribassista — candela rossa che ingloba la verde precedente.
+        """
+        return (
+            prev.bullish and
+            curr.bearish and
+            curr.open >= prev.close and
+            curr.close <= prev.open and
+            curr.body > prev.body * 0.8
+        )
+
+    def _is_strong_bullish_candle(self, c: Candle) -> bool:
+        """Candela bullish forte — body > 60% del range."""
+        if c.total_range == 0:
+            return False
+        return c.bullish and c.body >= c.total_range * 0.6
+
+    def _is_strong_bearish_candle(self, c: Candle) -> bool:
+        """Candela bearish forte — body > 60% del range."""
+        if c.total_range == 0:
+            return False
+        return c.bearish and c.body >= c.total_range * 0.6
+
+    def _get_support(self, lookback: int = 10) -> Optional[float]:
+        """Supporto dinamico — minimo delle ultime N candele."""
+        if len(self.candles) < lookback:
+            return None
+        recent = list(self.candles)[-lookback:]
+        return min(c.low for c in recent)
+
+    def _get_resistance(self, lookback: int = 10) -> Optional[float]:
+        """Resistenza dinamica — massimo delle ultime N candele."""
+        if len(self.candles) < lookback:
+            return None
+        recent = list(self.candles)[-lookback:]
+        return max(c.high for c in recent)
+
+    # ── MAIN SIGNAL ─────────────────────────────────────────
 
     def get_signal(self) -> SignalType:
         if not self._warmed_up:
             return "NONE"
-        if self.ema_fast.value is None or self.ema_slow.value is None:
-            return "NONE"
         if self.ema_trend.value is None:
             return "NONE"
-
-        total_ob = self.bid_volume + self.ask_volume
-        if total_ob == 0:
+        if len(self.candles) < 3:
             return "NONE"
-
-        buy_ratio = self.bid_volume / total_ob
-        sell_ratio = self.ask_volume / total_ob
-        threshold = self.config.ob_imbalance_threshold
-
-        buy_flow, sell_flow = self._flow()
-        total_flow = buy_flow + sell_flow
-
-        flow_confirms_buy = (buy_flow / total_flow > 0.55) if total_flow > 0 else False
-        flow_confirms_sell = (sell_flow / total_flow > 0.55) if total_flow > 0 else False
 
         price = self.last_close or 0
         ema200 = self.ema_trend.value
 
+        # Trend principale
         trend_up = price > ema200
         trend_down = price < ema200
 
-        ema_up = self.ema_fast.value > self.ema_slow.value
-        ema_down = self.ema_fast.value < self.ema_slow.value
-
-        # Distanza minima EMA200 — evita zona laterale pericolosa
+        # Distanza minima da EMA200 — evita zone laterali
         dist_pct = abs(price - ema200) / ema200 * 100
-        if dist_pct < 0.05:
-            # Troppo vicino a EMA200 — zona di indecisione
-            self._last_signal = "NONE"
+        if dist_pct < 0.1:
             return "NONE"
 
-        # LONG — trend UP + EMA cross + OB + candela bullish + flow
-        if (trend_up and ema_up and
-                buy_ratio >= threshold and
-                flow_confirms_buy and
-                self._candle_bullish()):
+        # Candele recenti
+        candles = list(self.candles)
+        last = candles[-1]    # ultima candela chiusa
+        prev = candles[-2]    # penultima
 
-            raw = "LONG"
-            if raw == self._last_raw_signal:
-                self._signal_count += 1
-            else:
-                self._signal_count = 1
-                self._last_raw_signal = raw
+        # Order book e flow
+        buy_ratio, sell_ratio = self._ob_ratio()
+        buy_flow, sell_flow = self._flow()
+        ob_threshold = self.config.ob_imbalance_threshold
 
-            # Richiede almeno 2 conferme consecutive per entrare
-            if self._signal_count >= 2 and self._last_signal != "LONG":
-                self._last_signal = "LONG"
-                logger.info(
-                    f"📈 {self.pair} LONG | "
-                    f"EMA {self.ema_fast.value:.2f}>{self.ema_slow.value:.2f} | "
-                    f"EMA200={ema200:.2f} | dist={dist_pct:.2f}% | "
-                    f"OB={buy_ratio:.0%} | flow={buy_flow:.2f}/{total_flow:.2f}"
-                )
-                return "LONG"
+        # Pattern rilevati
+        pin_bull = self._is_pin_bar_bullish(last)
+        pin_bear = self._is_pin_bar_bearish(last)
+        eng_bull = self._is_bullish_engulfing(prev, last)
+        eng_bear = self._is_bearish_engulfing(prev, last)
+        strong_bull = self._is_strong_bullish_candle(last)
+        strong_bear = self._is_strong_bearish_candle(last)
 
-        # SHORT — trend DOWN + EMA cross + OB + candela bearish + flow
-        elif (trend_down and ema_down and
-              sell_ratio >= threshold and
-              flow_confirms_sell and
-              self._candle_bearish()):
+        # Conferma OB
+        ob_bull = buy_ratio >= ob_threshold
+        ob_bear = sell_ratio >= ob_threshold
 
-            raw = "SHORT"
-            if raw == self._last_raw_signal:
-                self._signal_count += 1
-            else:
-                self._signal_count = 1
-                self._last_raw_signal = raw
+        # Conferma flow
+        flow_bull = buy_flow >= 0.55
+        flow_bear = sell_flow >= 0.55
 
-            if self._signal_count >= 2 and self._last_signal != "SHORT":
-                self._last_signal = "SHORT"
-                logger.info(
-                    f"📉 {self.pair} SHORT | "
-                    f"EMA {self.ema_fast.value:.2f}<{self.ema_slow.value:.2f} | "
-                    f"EMA200={ema200:.2f} | dist={dist_pct:.2f}% | "
-                    f"OB={sell_ratio:.0%} | flow={sell_flow:.2f}/{total_flow:.2f}"
-                )
-                return "SHORT"
+        # ── LONG ────────────────────────────────────────────
+        # Condizioni: trend UP + pattern PA + conferma OB/flow
+        long_pattern = pin_bull or eng_bull or strong_bull
+        long_confirm = ob_bull and flow_bull
 
-        else:
-            self._last_signal = "NONE"
-            self._signal_count = 0
-            self._last_raw_signal = "NONE"
+        if (trend_up and
+                long_pattern and
+                long_confirm and
+                self._last_signal != "LONG"):
+
+            pattern_name = ("PinBar" if pin_bull else
+                           "Engulfing" if eng_bull else "StrongCandle")
+            self._last_signal = "LONG"
+            logger.info(
+                f"📈 {self.pair} LONG [{pattern_name}] | "
+                f"EMA200={ema200:.2f} dist={dist_pct:.2f}% | "
+                f"OB={buy_ratio:.0%} flow={buy_flow:.0%}"
+            )
+            return "LONG"
+
+        # ── SHORT ───────────────────────────────────────────
+        short_pattern = pin_bear or eng_bear or strong_bear
+        short_confirm = ob_bear and flow_bear
+
+        if (trend_down and
+                short_pattern and
+                short_confirm and
+                self._last_signal != "SHORT"):
+
+            pattern_name = ("PinBar" if pin_bear else
+                           "Engulfing" if eng_bear else "StrongCandle")
+            self._last_signal = "SHORT"
+            logger.info(
+                f"📉 {self.pair} SHORT [{pattern_name}] | "
+                f"EMA200={ema200:.2f} dist={dist_pct:.2f}% | "
+                f"OB={sell_ratio:.0%} flow={sell_flow:.0%}"
+            )
+            return "SHORT"
 
         return "NONE"
