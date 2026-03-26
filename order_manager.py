@@ -137,33 +137,30 @@ class OrderManager:
         except Exception as e:
             self._log('warn', f'⚠️ Errore ordine {pair}: {e}')
 
-    async def monitor_open_orders(self):
-        for key, trade in list(self.trades.items()):
-            try:
-                ticker = await self.client.get_ticker(trade.pair, trade.market)
-                if not ticker:
-                    continue
+ async def monitor_open_orders(self):
+    for key, trade in list(self.trades.items()):
+        try:
+            ticker = await self.client.get_ticker(trade.pair, trade.market)
+            if not ticker:
+                continue
 
-                current_price = float(ticker["price"])
-                elapsed = time.time() - trade.opened_at
+            current_price = float(ticker["price"])
 
-                if elapsed > self.config.order_timeout_sec and trade.status == "OPEN":
-                    logger.warning(f"⏱️ Order timeout {trade.pair} [{trade.market}]")
-                    await self.client.cancel_order(trade.pair, trade.order_id, trade.market)
-                    await self._close_trade(key, trade, current_price, reason="TIMEOUT")
-                    continue
-
-                if trade.side == "LONG" and current_price >= trade.tp_price:
+            # Solo TP e SL — nessun timeout
+            if trade.side == "LONG":
+                if current_price >= trade.tp_price:
                     await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                elif trade.side == "SHORT" and current_price <= trade.tp_price:
-                    await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                elif trade.side == "LONG" and current_price <= trade.sl_price:
+                elif current_price <= trade.sl_price:
                     await self._close_trade(key, trade, trade.sl_price, reason="SL")
-                elif trade.side == "SHORT" and current_price >= trade.sl_price:
+            else:
+                if current_price <= trade.tp_price:
+                    await self._close_trade(key, trade, trade.tp_price, reason="TP")
+                elif current_price >= trade.sl_price:
                     await self._close_trade(key, trade, trade.sl_price, reason="SL")
 
-            except Exception as e:
-                logger.error(f"Monitor error {key}: {e}")
+        except Exception as e:
+            logger.error(f"Monitor error {key}: {e}")
+          
 
     async def _close_trade(self, key: str, trade: Trade, exit_price: float, reason: str):
         if trade.side == "LONG":
