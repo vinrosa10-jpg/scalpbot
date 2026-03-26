@@ -1,5 +1,6 @@
 """
-ScalpingBot - Main orchestrator
+ScalpingBot — Main orchestrator
+Price Action strategy on closed candles only.
 """
 
 import asyncio
@@ -46,39 +47,53 @@ class ScalpingBot:
 
     async def start(self):
         self.running = True
-        self._log('info', '🤖 Bot avviato')
+        self._log('info', '🤖 ScalpBot started')
 
         if self.config.testnet:
             self._log('warn', '⚠️ TESTNET MODE')
 
         await self.client.sync_clock()
 
-        # Seleziona coppie
+        # Select pairs
         if self.config.auto_select_pairs:
-            self._log('info', '🔍 Selezione coppie automatica...')
+            self._log('info', '🔍 Auto-selecting pairs...')
             await self.pair_selector.start()
             pairs = await self.pair_selector.get_pairs()
         else:
             pairs = self.config.pairs
-            self._log('info', f'📋 Coppie: {", ".join(pairs)}')
+            self._log('info', f'📋 Pairs: {", ".join(pairs)}')
 
-        # Registra strategie
+        # Init strategies
         for pair in pairs:
             self.strategies[pair] = ScalpingStrategy(pair, self.config)
 
-        # Setup leverage futures
+        # Setup futures leverage
         if self.config.enable_futures:
             await self.client.set_leverage_all(pairs, self.config.futures_leverage)
 
-        # Warm-up EMA200 con dati storici
-        self._log('info', '📊 Warm-up EMA200 in corso...')
+        # Warm-up all strategies
+        self._log('info', f'📊 Warming up {self.config.kline_interval} candles...')
         await asyncio.gather(*[
             strat.warm_up_from_api(self.client)
             for strat in self.strategies.values()
         ])
-        self._log('info', '✅ EMA200 pronta — bot operativo!')
 
-        # Avvia WebSocket streams
+        # Verify warm-up
+        failed = [p for p, s in self.strategies.items() if not s._warmed_up]
+        if failed:
+            logger.warning(f"⚠️ Warm-up failed for: {failed} — retrying...")
+            await asyncio.gather(*[
+                self.strategies[p].warm_up_from_api(self.client)
+                for p in failed
+            ])
+            still_failed = [p for p in failed if not self.strategies[p]._warmed_up]
+            if still_failed:
+                logger.warning(f"⚠️ Still failed: {still_failed} — signals blocked until data arrives")
+
+        ready = [p for p, s in self.strategies.items() if s._warmed_up]
+        self._log('info', f'✅ Ready: {", ".join(ready)} | Interval: {self.config.kline_interval}')
+
+        # Start data streams
         await self.data_feed.start(
             pairs=pairs,
             on_kline=self._on_kline,
@@ -92,33 +107,31 @@ class ScalpingBot:
             await asyncio.sleep(1)
 
     async def stop(self):
-        self._log('info', '🛑 Stopping bot...')
+        self._log('info', '🛑 Stopping...')
         self.running = False
         await self.order_manager.close_all_positions()
         await self.data_feed.stop()
         await self.pair_selector.stop()
-        self._log('info', '✅ Bot stopped cleanly.')
+        self._log('info', '✅ Stopped cleanly.')
 
-    async def _on_kline(self, pair: str, kline_data: dict):
-        strategy = self.strategies.get(pair)
-        if not strategy:
-            return
-        strategy.update_kline(kline_data)
-        await self._evaluate_signal(pair)
+    async def _on_kline(self, pair: str, data: dict):
+        strat = self.strategies.get(pair)
+        if strat:
+            strat.update_kline(data)
+            await self._evaluate(pair)
 
-    async def _on_orderbook(self, pair: str, orderbook: dict):
-        strategy = self.strategies.get(pair)
-        if not strategy:
-            return
-        strategy.update_orderbook(orderbook)
-        await self._evaluate_signal(pair)
+    async def _on_orderbook(self, pair: str, data: dict):
+        strat = self.strategies.get(pair)
+        if strat:
+            strat.update_orderbook(data)
+            await self._evaluate(pair)
 
-    async def _on_trade(self, pair: str, trade: dict):
-        strategy = self.strategies.get(pair)
-        if strategy:
-            strategy.update_trade(trade)
+    async def _on_trade(self, pair: str, data: dict):
+        strat = self.strategies.get(pair)
+        if strat:
+            strat.update_trade(data)
 
-    async def _evaluate_signal(self, pair: str):
+    async def _evaluate(self, pair: str):
         if not self.running:
             return
 
@@ -128,20 +141,31 @@ class ScalpingBot:
 
         if self.risk_manager.is_daily_limit_hit():
             if self.running:
-                self._log('loss', '❌ Daily loss limit raggiunto. Stop.')
+                self._log('loss', '❌ Daily loss limit hit. Stopping.')
                 await self.stop()
             return
 
-        strategy = self.strategies[pair]
-        signal = strategy.get_signal()
+        strat = self.strategies[pair]
 
+        # Block signals until warm-up complete
+        if not strat._warmed_up:
+            return
+
+        # Need at least 20 candles for reliable PA signals
+        if len(strat.candles) < 20:
+            return
+
+        signal = strat.get_signal()
         if signal == "NONE":
             return
 
         if not self.risk_manager.can_open_trade(pair):
             return
 
-        self._log('info', f'📡 Segnale: {signal} | {pair}')
+        # Get pattern name for logging
+        pattern = strat._last_signal  # already set in get_signal
+
+        self._log('info', f'📡 Signal: {signal} | {pair}')
 
         if self.config.enable_spot:
             await self.order_manager.open_trade(pair, signal, market="SPOT")

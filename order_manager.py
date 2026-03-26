@@ -1,12 +1,11 @@
 """
-Order Manager - Handles entry, exit, TP/SL for all open trades.
-Saves all trades to SQLite database for automatic documentation.
-No timeout - trades close only on TP or SL.
+Order Manager — Entry, exit, TP/SL management.
+No timeout — trades close only on TP or SL.
 """
 
 import math
 import time
-from typing import Dict, Optional
+from typing import Dict
 from dataclasses import dataclass, field
 from loguru import logger
 from config import Config
@@ -25,7 +24,7 @@ class Trade:
     sl_price: float
     order_id: str
     opened_at: float = field(default_factory=time.time)
-    status: str = "OPEN"
+    pattern: str = ""
 
 
 LOT_STEP = {
@@ -71,12 +70,14 @@ class OrderManager:
         if self.api_server:
             self.api_server.add_log(type_, msg)
 
-    def _trade_key(self, pair: str, market: str) -> str:
+    def _key(self, pair: str, market: str) -> str:
         return f"{pair}_{market}"
 
-    async def open_trade(self, pair: str, signal: str, market: str):
-        key = self._trade_key(pair, market)
+    async def open_trade(self, pair: str, signal: str, market: str, pattern: str = ""):
+        key = self._key(pair, market)
         if key in self.trades:
+            return
+        if market == "SPOT" and signal == "SHORT":
             return
 
         ticker = await self.client.get_ticker(pair, market)
@@ -86,55 +87,39 @@ class OrderManager:
         price = float(ticker["price"])
         side = "BUY" if signal == "LONG" else "SELL"
 
-        if market == "SPOT" and signal == "SHORT":
-            return
-
         qty = self.risk_manager.calculate_position_size(price, market)
         qty = round_lot(qty, pair, market)
 
         if qty <= 0:
-            logger.warning(f"⚠️ Qty troppo piccola per {pair} [{market}]: {qty}")
+            logger.warning(f"⚠️ Qty too small for {pair} [{market}]: {qty}")
             return
 
         tp, sl = self.risk_manager.calculate_tp_sl(price, signal)
 
         if side == "BUY":
-            limit_price = price * (1 + self.config.limit_order_offset_pct)
+            entry = round(price * (1 + self.config.limit_order_offset_pct), 2)
         else:
-            limit_price = price * (1 - self.config.limit_order_offset_pct)
+            entry = round(price * (1 - self.config.limit_order_offset_pct), 2)
 
-        limit_price = round(limit_price, 2)
-
-        self._log('info', f'📥 {signal} {pair} | Entry: {limit_price} | TP: {round(tp,2)} | SL: {round(sl,2)}')
+        self._log('info', f'📥 {signal} {pair} [{market}]{" ["+pattern+"]" if pattern else ""} | Entry: {entry} | TP: {round(tp,2)} | SL: {round(sl,2)}')
 
         try:
             order = await self.client.place_order(
-                pair=pair,
-                side=side,
+                pair=pair, side=side,
                 order_type=self.config.order_type,
-                qty=qty,
-                price=limit_price,
-                market=market,
+                qty=qty, price=entry, market=market,
             )
-
-            order_id = order.get("orderId", "unknown")
-            trade = Trade(
-                pair=pair,
-                side=signal,
-                market=market,
-                entry_price=limit_price,
-                qty=qty,
-                tp_price=tp,
-                sl_price=sl,
-                order_id=str(order_id),
+            order_id = str(order.get("orderId", "unknown"))
+            self.trades[key] = Trade(
+                pair=pair, side=signal, market=market,
+                entry_price=entry, qty=qty,
+                tp_price=tp, sl_price=sl,
+                order_id=order_id, pattern=pattern,
             )
-
-            self.trades[key] = trade
             self.risk_manager.register_trade_open(pair)
-            self._log('info', f'✅ Aperto {pair} [{market}] ID: {order_id}')
-
+            self._log('info', f'✅ Opened {pair} [{market}] ID: {order_id}')
         except Exception as e:
-            self._log('warn', f'⚠️ Errore ordine {pair}: {e}')
+            self._log('warn', f'⚠️ Order error {pair}: {e}')
 
     async def monitor_open_orders(self):
         for key, trade in list(self.trades.items()):
@@ -142,61 +127,48 @@ class OrderManager:
                 ticker = await self.client.get_ticker(trade.pair, trade.market)
                 if not ticker:
                     continue
+                price = float(ticker["price"])
 
-                current_price = float(ticker["price"])
-
-                # Solo TP e SL — nessun timeout
                 if trade.side == "LONG":
-                    if current_price >= trade.tp_price:
-                        await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                    elif current_price <= trade.sl_price:
-                        await self._close_trade(key, trade, trade.sl_price, reason="SL")
+                    if price >= trade.tp_price:
+                        await self._close(key, trade, trade.tp_price, "TP")
+                    elif price <= trade.sl_price:
+                        await self._close(key, trade, trade.sl_price, "SL")
                 else:
-                    if current_price <= trade.tp_price:
-                        await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                    elif current_price >= trade.sl_price:
-                        await self._close_trade(key, trade, trade.sl_price, reason="SL")
-
+                    if price <= trade.tp_price:
+                        await self._close(key, trade, trade.tp_price, "TP")
+                    elif price >= trade.sl_price:
+                        await self._close(key, trade, trade.sl_price, "SL")
             except Exception as e:
                 logger.error(f"Monitor error {key}: {e}")
 
-    async def _close_trade(self, key: str, trade: Trade, exit_price: float, reason: str):
+    async def _close(self, key: str, trade: Trade, exit_price: float, reason: str):
         if trade.side == "LONG":
             pnl = (exit_price - trade.entry_price) * trade.qty
         else:
             pnl = (trade.entry_price - exit_price) * trade.qty
 
         fee_pct = 0.001 if trade.market == "SPOT" else 0.0004
-        fees = trade.entry_price * trade.qty * fee_pct * 2
-        net_pnl = pnl - fees
+        net_pnl = pnl - (trade.entry_price * trade.qty * fee_pct * 2)
         duration = time.time() - trade.opened_at
 
-        logger.info(f"🔒 Close [{reason}] {trade.pair} [{trade.market}] | Net PnL: {net_pnl:+.4f} USDT | Durata: {duration:.0f}s")
+        logger.info(f"🔒 [{reason}] {trade.pair} {trade.side} | PnL: {net_pnl:+.4f} USDT | {duration:.0f}s")
 
         try:
             close_side = "SELL" if trade.side == "LONG" else "BUY"
             await self.client.place_order(
-                pair=trade.pair,
-                side=close_side,
-                order_type="MARKET",
-                qty=trade.qty,
-                price=None,
-                market=trade.market,
+                pair=trade.pair, side=close_side,
+                order_type="MARKET", qty=trade.qty,
+                price=None, market=trade.market,
             )
         except Exception as e:
-            logger.error(f"Close order error: {e}")
+            logger.error(f"Close error: {e}")
 
-        # Salva nel database
         try:
             db.save_trade(
-                pair=trade.pair,
-                side=trade.side,
-                market=trade.market,
-                entry_price=trade.entry_price,
-                exit_price=exit_price,
-                qty=trade.qty,
-                pnl=net_pnl,
-                reason=reason,
+                pair=trade.pair, side=trade.side, market=trade.market,
+                entry_price=trade.entry_price, exit_price=exit_price,
+                qty=trade.qty, pnl=net_pnl, reason=reason,
                 duration_sec=round(duration, 1)
             )
             rm = self.risk_manager
@@ -205,24 +177,22 @@ class OrderManager:
                 pnl_cumulative=rm.daily_pnl
             )
         except Exception as e:
-            logger.error(f"DB save error: {e}")
+            logger.error(f"DB error: {e}")
 
-        # Log su app mobile
         if self.api_server:
             emoji = '✅' if net_pnl > 0 else '❌'
-            type_ = 'win' if net_pnl > 0 else 'loss'
-            reason_emoji = {'TP': '🎯', 'SL': '🛑', 'EMERGENCY': '🚨'}.get(reason, '🔒')
+            r_emoji = {'TP': '🎯', 'SL': '🛑', 'EMERGENCY': '🚨'}.get(reason, '🔒')
             self.api_server.add_log(
-                type_,
-                f'{emoji} {trade.pair} {trade.side} {reason_emoji}[{reason}] {net_pnl:+.4f}$'
+                'win' if net_pnl > 0 else 'loss',
+                f'{emoji} {trade.pair} {trade.side} {r_emoji}[{reason}] {net_pnl:+.4f}$'
             )
 
         self.trades.pop(key, None)
         self.risk_manager.register_trade_close(trade.pair, net_pnl, reason)
 
     async def close_all_positions(self):
-        logger.warning("⚠️ Closing all positions...")
+        logger.warning("⚠️ Emergency close all positions")
         for key, trade in list(self.trades.items()):
             ticker = await self.client.get_ticker(trade.pair, trade.market)
             price = float(ticker["price"]) if ticker else trade.entry_price
-            await self._close_trade(key, trade, price, reason="EMERGENCY")
+            await self._close(key, trade, price, "EMERGENCY")
