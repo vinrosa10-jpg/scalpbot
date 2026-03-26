@@ -1,9 +1,9 @@
 """
 Order Manager - Handles entry, exit, TP/SL for all open trades.
 Saves all trades to SQLite database for automatic documentation.
+No timeout - trades close only on TP or SL.
 """
 
-import asyncio
 import math
 import time
 from typing import Dict, Optional
@@ -59,10 +59,9 @@ class OrderManager:
         self.risk_manager = risk_manager
         self.config = config
         self.trades: Dict[str, Trade] = {}
-        self.api_server = None  # Impostato da bot.py
+        self.api_server = None
 
     def _log(self, type_: str, msg: str):
-        """Log su console e app mobile."""
         if type_ == 'win':
             logger.success(msg)
         elif type_ == 'loss':
@@ -137,30 +136,29 @@ class OrderManager:
         except Exception as e:
             self._log('warn', f'⚠️ Errore ordine {pair}: {e}')
 
- async def monitor_open_orders(self):
-    for key, trade in list(self.trades.items()):
-        try:
-            ticker = await self.client.get_ticker(trade.pair, trade.market)
-            if not ticker:
-                continue
+    async def monitor_open_orders(self):
+        for key, trade in list(self.trades.items()):
+            try:
+                ticker = await self.client.get_ticker(trade.pair, trade.market)
+                if not ticker:
+                    continue
 
-            current_price = float(ticker["price"])
+                current_price = float(ticker["price"])
 
-            # Solo TP e SL — nessun timeout
-            if trade.side == "LONG":
-                if current_price >= trade.tp_price:
-                    await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                elif current_price <= trade.sl_price:
-                    await self._close_trade(key, trade, trade.sl_price, reason="SL")
-            else:
-                if current_price <= trade.tp_price:
-                    await self._close_trade(key, trade, trade.tp_price, reason="TP")
-                elif current_price >= trade.sl_price:
-                    await self._close_trade(key, trade, trade.sl_price, reason="SL")
+                # Solo TP e SL — nessun timeout
+                if trade.side == "LONG":
+                    if current_price >= trade.tp_price:
+                        await self._close_trade(key, trade, trade.tp_price, reason="TP")
+                    elif current_price <= trade.sl_price:
+                        await self._close_trade(key, trade, trade.sl_price, reason="SL")
+                else:
+                    if current_price <= trade.tp_price:
+                        await self._close_trade(key, trade, trade.tp_price, reason="TP")
+                    elif current_price >= trade.sl_price:
+                        await self._close_trade(key, trade, trade.sl_price, reason="SL")
 
-        except Exception as e:
-            logger.error(f"Monitor error {key}: {e}")
-          
+            except Exception as e:
+                logger.error(f"Monitor error {key}: {e}")
 
     async def _close_trade(self, key: str, trade: Trade, exit_price: float, reason: str):
         if trade.side == "LONG":
@@ -173,10 +171,8 @@ class OrderManager:
         net_pnl = pnl - fees
         duration = time.time() - trade.opened_at
 
-        # Log su console
-        logger.info(f"🔒 Close [{reason}] {trade.pair} [{trade.market}] | Net PnL: {net_pnl:+.4f} USDT")
+        logger.info(f"🔒 Close [{reason}] {trade.pair} [{trade.market}] | Net PnL: {net_pnl:+.4f} USDT | Durata: {duration:.0f}s")
 
-        # Chiudi ordine su exchange
         try:
             close_side = "SELL" if trade.side == "LONG" else "BUY"
             await self.client.place_order(
@@ -211,21 +207,21 @@ class OrderManager:
         except Exception as e:
             logger.error(f"DB save error: {e}")
 
-        # Log su app mobile con dettaglio completo
+        # Log su app mobile
         if self.api_server:
             emoji = '✅' if net_pnl > 0 else '❌'
             type_ = 'win' if net_pnl > 0 else 'loss'
-            reason_emoji = {'TP': '🎯', 'SL': '🛑', 'TIMEOUT': '⏱️', 'EMERGENCY': '🚨'}.get(reason, '🔒')
+            reason_emoji = {'TP': '🎯', 'SL': '🛑', 'EMERGENCY': '🚨'}.get(reason, '🔒')
             self.api_server.add_log(
                 type_,
                 f'{emoji} {trade.pair} {trade.side} {reason_emoji}[{reason}] {net_pnl:+.4f}$'
             )
 
         self.trades.pop(key, None)
-        self.risk_manager.register_trade_close(trade.pair, net_pnl)
+        self.risk_manager.register_trade_close(trade.pair, net_pnl, reason)
 
     async def close_all_positions(self):
-        logger.warning("⚠️  Closing all positions...")
+        logger.warning("⚠️ Closing all positions...")
         for key, trade in list(self.trades.items()):
             ticker = await self.client.get_ticker(trade.pair, trade.market)
             price = float(ticker["price"]) if ticker else trade.entry_price
