@@ -1,6 +1,7 @@
 """
 Order Manager — Entry, exit, TP/SL management.
-No timeout — trades close only on TP or SL.
+No timeout — trades close on TP, SL, or Profit Lock.
+Profit Lock: closes after 30min if net profit > fees.
 """
 
 import math
@@ -43,6 +44,9 @@ LOT_STEP = {
 }
 DEFAULT_STEP = 0.001
 
+PROFIT_LOCK_SECONDS = 1800   # 30 minuti = 2 candele 15m
+PROFIT_LOCK_BUFFER  = 1.2    # copri fee + 20% margine extra
+
 
 def round_lot(qty: float, pair: str, market: str = "SPOT") -> float:
     key = pair + ("_F" if market == "FUTURES" else "")
@@ -72,6 +76,16 @@ class OrderManager:
 
     def _key(self, pair: str, market: str) -> str:
         return f"{pair}_{market}"
+
+    def _calc_fees(self, trade: Trade) -> float:
+        fee_pct = 0.001 if trade.market == "SPOT" else 0.0004
+        return trade.entry_price * trade.qty * fee_pct * 2
+
+    def _calc_gross_pnl(self, trade: Trade, current_price: float) -> float:
+        if trade.side == "LONG":
+            return (current_price - trade.entry_price) * trade.qty
+        else:
+            return (trade.entry_price - current_price) * trade.qty
 
     async def open_trade(self, pair: str, signal: str, market: str, pattern: str = ""):
         key = self._key(pair, market)
@@ -127,32 +141,58 @@ class OrderManager:
                 ticker = await self.client.get_ticker(trade.pair, trade.market)
                 if not ticker:
                     continue
-                price = float(ticker["price"])
 
-                if trade.side == "LONG":
-                    if price >= trade.tp_price:
-                        await self._close(key, trade, trade.tp_price, "TP")
-                    elif price <= trade.sl_price:
-                        await self._close(key, trade, trade.sl_price, "SL")
-                else:
-                    if price <= trade.tp_price:
-                        await self._close(key, trade, trade.tp_price, "TP")
-                    elif price >= trade.sl_price:
-                        await self._close(key, trade, trade.sl_price, "SL")
+                current_price = float(ticker["price"])
+                elapsed = time.time() - trade.opened_at
+                fees = self._calc_fees(trade)
+                gross_pnl = self._calc_gross_pnl(trade, current_price)
+                net_pnl = gross_pnl - fees
+
+                # ── TP ───────────────────────────────────────────
+                if trade.side == "LONG" and current_price >= trade.tp_price:
+                    await self._close(key, trade, trade.tp_price, "TP")
+                    continue
+
+                if trade.side == "SHORT" and current_price <= trade.tp_price:
+                    await self._close(key, trade, trade.tp_price, "TP")
+                    continue
+
+                # ── SL ───────────────────────────────────────────
+                if trade.side == "LONG" and current_price <= trade.sl_price:
+                    await self._close(key, trade, trade.sl_price, "SL")
+                    continue
+
+                if trade.side == "SHORT" and current_price >= trade.sl_price:
+                    await self._close(key, trade, trade.sl_price, "SL")
+                    continue
+
+                # ── PROFIT LOCK ──────────────────────────────────
+                # Chiude dopo 30min se il profitto netto copre fee + margine
+                if elapsed > PROFIT_LOCK_SECONDS and net_pnl > fees * PROFIT_LOCK_BUFFER:
+                    logger.info(
+                        f"💰 Profit Lock {trade.pair} | "
+                        f"Elapsed: {elapsed/60:.0f}min | "
+                        f"Net: +{net_pnl:.4f}$ | "
+                        f"Fees: {fees:.4f}$"
+                    )
+                    await self._close(key, trade, current_price, "PROFIT_LOCK")
+                    continue
+
             except Exception as e:
                 logger.error(f"Monitor error {key}: {e}")
 
     async def _close(self, key: str, trade: Trade, exit_price: float, reason: str):
-        if trade.side == "LONG":
-            pnl = (exit_price - trade.entry_price) * trade.qty
-        else:
-            pnl = (trade.entry_price - exit_price) * trade.qty
-
-        fee_pct = 0.001 if trade.market == "SPOT" else 0.0004
-        net_pnl = pnl - (trade.entry_price * trade.qty * fee_pct * 2)
+        gross_pnl = self._calc_gross_pnl(trade, exit_price)
+        fees = self._calc_fees(trade)
+        net_pnl = gross_pnl - fees
         duration = time.time() - trade.opened_at
 
-        logger.info(f"🔒 [{reason}] {trade.pair} {trade.side} | PnL: {net_pnl:+.4f} USDT | {duration:.0f}s")
+        logger.info(
+            f"🔒 [{reason}] {trade.pair} {trade.side} | "
+            f"PnL: {net_pnl:+.4f} USDT | "
+            f"Fees: {fees:.4f} | "
+            f"Duration: {duration/60:.1f}min"
+        )
 
         try:
             close_side = "SELL" if trade.side == "LONG" else "BUY"
@@ -162,7 +202,7 @@ class OrderManager:
                 price=None, market=trade.market,
             )
         except Exception as e:
-            logger.error(f"Close error: {e}")
+            logger.error(f"Close order error: {e}")
 
         try:
             db.save_trade(
@@ -181,7 +221,12 @@ class OrderManager:
 
         if self.api_server:
             emoji = '✅' if net_pnl > 0 else '❌'
-            r_emoji = {'TP': '🎯', 'SL': '🛑', 'EMERGENCY': '🚨'}.get(reason, '🔒')
+            r_emoji = {
+                'TP': '🎯',
+                'SL': '🛑',
+                'PROFIT_LOCK': '💰',
+                'EMERGENCY': '🚨'
+            }.get(reason, '🔒')
             self.api_server.add_log(
                 'win' if net_pnl > 0 else 'loss',
                 f'{emoji} {trade.pair} {trade.side} {r_emoji}[{reason}] {net_pnl:+.4f}$'
