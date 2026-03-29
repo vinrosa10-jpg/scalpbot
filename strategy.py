@@ -69,6 +69,9 @@ class ScalpingStrategy:
         self._last_signal: SignalType = "NONE"
         self._last_candle_time: int = 0
 
+        # Debug: track why signals are blocked (logged max 1 volta per candela)
+        self._debug_logged_at: int = 0
+
     async def warm_up_from_api(self, client):
         """Load historical candles for accurate EMA200."""
         try:
@@ -112,6 +115,7 @@ class ScalpingStrategy:
             if not self._warmed_up and self.ema_trend.value:
                 self._warmed_up = True
             self._last_signal = "NONE"  # Reset on each new candle
+            self._debug_logged_at = 0   # Permetti nuovo debug log per questa candela
 
     def update_orderbook(self, data: dict):
         depth = self.config.ob_depth_levels
@@ -222,24 +226,30 @@ class ScalpingStrategy:
         last = candles[-1]
         prev = candles[-2]
 
-        # Confirmations
+        # FIX: soglie abbassate — 0.65/0.55 era troppo restrittivo su 15m
+        # OB e flow misurati su tick real-time: soglie alte = zero segnali
         buy_ratio, sell_ratio = self._ob_ratio()
         buy_flow, sell_flow = self._flow_ratio()
-        threshold = self.config.ob_imbalance_threshold
 
-        ob_bull = buy_ratio >= threshold
-        ob_bear = sell_ratio >= threshold
-        flow_bull = buy_flow >= 0.55
-        flow_bear = sell_flow >= 0.55
+        ob_threshold   = 0.52   # era 0.65
+        flow_threshold = 0.50   # era 0.55
+
+        ob_bull   = buy_ratio  >= ob_threshold
+        ob_bear   = sell_ratio >= ob_threshold
+        flow_bull = buy_flow   >= flow_threshold
+        flow_bear = sell_flow  >= flow_threshold
 
         # Patterns
-        long_pattern = self._pin_bar_bull(last) or self._engulfing_bull(prev, last) or self._strong_bull(last)
+        long_pattern  = self._pin_bar_bull(last) or self._engulfing_bull(prev, last) or self._strong_bull(last)
         short_pattern = self._pin_bar_bear(last) or self._engulfing_bear(prev, last) or self._strong_bear(last)
+
+        # Debug log — una volta per candela quando c'è un pattern ma qualcosa blocca
+        should_debug = (self._debug_logged_at != self._last_candle_time)
 
         # LONG
         if trend_up and long_pattern and ob_bull and flow_bull and self._last_signal != "LONG":
-            pattern = ("PinBar" if self._pin_bar_bull(last) else
-                      "Engulfing" if self._engulfing_bull(prev, last) else "StrongCandle")
+            pattern = ("PinBar"      if self._pin_bar_bull(last) else
+                       "Engulfing"   if self._engulfing_bull(prev, last) else "StrongCandle")
             self._last_signal = "LONG"
             logger.info(
                 f"📈 {self.pair} LONG [{pattern}] | "
@@ -250,8 +260,8 @@ class ScalpingStrategy:
 
         # SHORT
         if trend_down and short_pattern and ob_bear and flow_bear and self._last_signal != "SHORT":
-            pattern = ("PinBar" if self._pin_bar_bear(last) else
-                      "Engulfing" if self._engulfing_bear(prev, last) else "StrongCandle")
+            pattern = ("PinBar"      if self._pin_bar_bear(last) else
+                       "Engulfing"   if self._engulfing_bear(prev, last) else "StrongCandle")
             self._last_signal = "SHORT"
             logger.info(
                 f"📉 {self.pair} SHORT [{pattern}] | "
@@ -259,5 +269,20 @@ class ScalpingStrategy:
                 f"OB={sell_ratio:.0%} flow={sell_flow:.0%}"
             )
             return "SHORT"
+
+        # Debug: logga perché il pattern non si è convertito in segnale
+        if should_debug and (long_pattern or short_pattern):
+            self._debug_logged_at = self._last_candle_time
+            direction = "LONG" if long_pattern else "SHORT"
+            ratio     = buy_ratio  if long_pattern else sell_ratio
+            flow      = buy_flow   if long_pattern else sell_flow
+            trend_ok  = trend_up   if long_pattern else trend_down
+            logger.debug(
+                f"🔍 {self.pair} pattern {direction} trovato ma bloccato | "
+                f"trend={'✅' if trend_ok else '❌'} "
+                f"ob={'✅' if (ob_bull if long_pattern else ob_bear) else f'❌({ratio:.0%})'} "
+                f"flow={'✅' if (flow_bull if long_pattern else flow_bear) else f'❌({flow:.0%})'} "
+                f"dup={'✅' if self._last_signal != direction else '❌(già inviato)'}"
+            )
 
         return "NONE"
