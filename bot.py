@@ -52,6 +52,15 @@ class ScalpingBot:
         if self.config.testnet:
             self._log('warn', '⚠️ TESTNET MODE')
 
+        # Log stato mercati all'avvio per debug immediato
+        self._log('info',
+            f"🔧 Markets: SPOT={'ON' if self.config.enable_spot else 'OFF'} | "
+            f"FUTURES={'ON' if self.config.enable_futures else 'OFF'}"
+        )
+
+        if not self.config.enable_spot and not self.config.enable_futures:
+            self._log('warn', '⚠️ Attenzione: sia SPOT che FUTURES sono disabilitati — nessun trade verrà aperto!')
+
         await self.client.sync_clock()
 
         # Select pairs
@@ -159,11 +168,15 @@ class ScalpingBot:
         if signal == "NONE":
             return
 
-        if not self.risk_manager.can_open_trade(pair):
+        # FIX: spot Binance non supporta SHORT (no margin trading su testnet)
+        # Blocca SHORT se siamo solo in spot mode
+        if signal == "SHORT" and self.config.enable_spot and not self.config.enable_futures:
+            logger.debug(f"🚫 {pair}: SHORT ignorato in modalità SPOT-only")
             return
 
-        # Get pattern name for logging
-        pattern = strat._last_signal  # already set in get_signal
+        if not self.risk_manager.can_open_trade(pair):
+            self._log('info', f'🚫 {pair}: can_open_trade=False (max trades raggiunto o cooldown attivo)')
+            return
 
         self._log('info', f'📡 Signal: {signal} | {pair}')
 
