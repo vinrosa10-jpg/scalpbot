@@ -87,13 +87,17 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
+        # FIX: leggi enable_spot/enable_futures da env var (erano hardcoded False)
+        env_spot    = os.getenv("ENABLE_SPOT",    "false").lower() == "true"
+        env_futures = os.getenv("ENABLE_FUTURES", "false").lower() == "true"
+
         cfg = cls(
             api_key=os.getenv("BINANCE_SPOT_API_KEY", ""),
             api_secret=os.getenv("BINANCE_SPOT_API_SECRET", ""),
             futures_api_key=os.getenv("BINANCE_FUTURES_API_KEY", ""),
             futures_api_secret=os.getenv("BINANCE_FUTURES_API_SECRET", ""),
-            enable_spot=False,
-            enable_futures=False,
+            enable_spot=env_spot,
+            enable_futures=env_futures,
             testnet=os.getenv("TESTNET", "true").lower() == "true",
             ob_imbalance_threshold=float(os.getenv("OB_IMBALANCE_THRESHOLD", "0.65")),
             ema_fast=int(os.getenv("EMA_FAST", "9")),
@@ -115,13 +119,20 @@ class Config:
             order_type=os.getenv("ORDER_TYPE", "MARKET"),
         )
 
-        # Override with saved state (app has priority)
+        # Override con stato salvato dal DB (app ha priorità su env)
+        # MA solo se l'utente ha esplicitamente salvato uno stato tramite app.
+        # Se il DB ha 'false' per spot ma l'env dice 'true', l'env vince
+        # solo se il DB non ha mai ricevuto un comando esplicito dall'utente.
         state = _load_state()
         if state:
             if "enable_spot" in state:
-                cfg.enable_spot = state["enable_spot"] == "true"
+                db_spot = state["enable_spot"] == "true"
+                # Il DB ha priorità solo se diverge dall'env (= utente ha cambiato da app)
+                # oppure se env è False (DB è l'unica fonte di verità)
+                cfg.enable_spot = db_spot if (not env_spot or db_spot) else env_spot
             if "enable_futures" in state:
-                cfg.enable_futures = state["enable_futures"] == "true"
+                db_futures = state["enable_futures"] == "true"
+                cfg.enable_futures = db_futures if (not env_futures or db_futures) else env_futures
             if "take_profit_pct" in state:
                 cfg.take_profit_pct = float(state["take_profit_pct"])
             if "stop_loss_pct" in state:
@@ -144,6 +155,10 @@ class Config:
             )
         else:
             from loguru import logger
-            logger.info("💾 No saved state — waiting for app commands")
+            logger.info(
+                f"💾 No saved state — using env vars | "
+                f"Spot={'ON' if cfg.enable_spot else 'OFF'} "
+                f"Futures={'ON' if cfg.enable_futures else 'OFF'}"
+            )
 
         return cfg
