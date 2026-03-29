@@ -198,38 +198,35 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-
 .log-item.info .log-m{color:var(--blue)}.log-item.warn .log-m{color:var(--yellow)}
 
 /* ── MKT STATUS (SCANNER) ── */
-.mkt-card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:10px;box-shadow:var(--card-shadow)}
-.mkt-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.mkt-sym{font-size:13px;font-weight:700;color:var(--text);font-family:monospace}
-.trend-pill{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:700;padding:4px 10px;border-radius:20px}
+.mkt-card{background:var(--card);border-radius:20px;padding:16px;margin-bottom:10px;box-shadow:var(--card-shadow);overflow:hidden;width:100%;box-sizing:border-box}
+.mkt-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;min-width:0}
+.mkt-sym{font-size:15px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mkt-price-row{display:flex;align-items:baseline;gap:6px;margin-bottom:10px;flex-wrap:nowrap;min-width:0;overflow:hidden}
+.mkt-price-big{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.5px;white-space:nowrap;color:var(--text)}
+.mkt-price-big.up{color:var(--accent)}.mkt-price-big.down{color:var(--red)}
+.mkt-ema-badge{font-size:9px;font-weight:700;font-family:monospace;padding:3px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0}
+.mkt-ema-badge.e200{background:var(--blue-dim);color:var(--blue)}
+.trend-pill{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:800;padding:5px 10px;border-radius:20px;flex-shrink:0;white-space:nowrap}
 .trend-pill svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .trend-pill.up{background:var(--accent-dim);color:var(--accent)}.trend-pill.down{background:var(--red-dim);color:var(--red)}
-.mkt-chips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
-.mkt-chip{font-size:8px;font-weight:600;padding:2px 8px;border-radius:6px;font-family:monospace;background:var(--bg3);color:var(--text3)}
-.mkt-chip.up{background:var(--accent-dim);color:var(--accent)}.mkt-chip.down{background:var(--red-dim);color:var(--red)}
-.mkt-chip.info{background:var(--blue-dim);color:var(--blue)}.mkt-chip.warn{background:var(--yellow-dim);color:var(--yellow)}
-.mkt-ob{display:flex;align-items:center;gap:8px;margin-bottom:5px}
-.mkt-ob-lbl{font-size:8px;font-weight:700;color:var(--text3);width:24px;font-family:monospace;text-transform:uppercase}
-.mkt-ob-bar{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
-.mkt-ob-fill{height:100%;border-radius:2px;transition:width .5s}
-.mkt-ob-fill.buy{background:var(--accent)}.mkt-ob-fill.sell{background:var(--red)}
-.mkt-ob-pct{font-size:9px;font-weight:700;font-family:monospace;width:28px;text-align:right}
-.mkt-ob-pct.buy{color:var(--accent)}.mkt-ob-pct.sell{color:var(--red)}
+.mkt-ob-section{margin-bottom:12px}
+.mkt-ob-label-row{display:flex;justify-content:space-between;font-size:9px;font-weight:700;font-family:monospace;margin-bottom:5px}
+.mkt-ob-label-row .buy{color:var(--accent)}.mkt-ob-label-row .sell{color:var(--red)}
+.mkt-ob-track{height:6px;background:var(--red-dim);border-radius:4px;overflow:hidden}
+.mkt-ob-fill-buy{height:100%;background:var(--accent);border-radius:4px;transition:width .6s cubic-bezier(.4,0,.2,1)}
+.mkt-conditions{display:flex;flex-direction:column;gap:5px}
+.mkt-cond-row{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg3);border-radius:10px;min-width:0}
+.mkt-cond-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.mkt-cond-dot.ok{background:var(--accent)}.mkt-cond-dot.no{background:var(--red)}.mkt-cond-dot.wait{background:var(--yellow);animation:blink 1.2s infinite}
+.mkt-cond-label{font-size:11px;font-weight:600;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mkt-cond-val{font-size:10px;font-weight:700;font-family:monospace;color:var(--text3);flex-shrink:0;white-space:nowrap;max-width:72px;text-align:right;overflow:hidden;text-overflow:ellipsis}
+.mkt-cond-val.ok{color:var(--accent)}.mkt-cond-val.no{color:var(--red)}.mkt-cond-val.wait{color:var(--yellow)}
+.mkt-ready-banner{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--accent-dim);border-radius:12px;margin-top:6px}
+.mkt-ready-banner svg{width:16px;height:16px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.mkt-ready-banner span{font-size:12px;font-weight:700;color:var(--accent)}
+.mkt-cd{display:flex;align-items:center;gap:6px;background:rgba(139,92,246,.1);border-radius:10px;padding:7px 10px;font-size:10px;font-family:monospace;font-weight:700;color:#8b5cf6;margin-top:6px}
 
-/* ── SCANNER: blockers leggibili ── */
-.mkt-signal-ready{background:var(--accent-dim);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:8px;margin-top:4px}
-.mkt-signal-ready svg{width:14px;height:14px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.mkt-signal-ready span{font-size:11px;font-weight:700;color:var(--accent)}
-.mkt-blockers{margin-top:6px;display:flex;flex-direction:column;gap:4px}
-.mkt-blocker{display:flex;align-items:center;gap:7px;padding:6px 10px;background:var(--bg3);border-radius:8px}
-.mkt-blocker-icon{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.mkt-blocker-icon.ok{background:var(--accent-dim)}.mkt-blocker-icon.ok svg{stroke:var(--accent)}
-.mkt-blocker-icon.no{background:var(--red-dim)}.mkt-blocker-icon.no svg{stroke:var(--red)}
-.mkt-blocker-icon.wait{background:var(--yellow-dim)}.mkt-blocker-icon.wait svg{stroke:var(--yellow)}
-.mkt-blocker-icon svg{width:10px;height:10px;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
-.mkt-blocker-txt{font-size:10px;font-weight:600;color:var(--text2)}
-.mkt-blocker-val{font-size:9px;font-family:monospace;color:var(--text3);margin-left:auto}
-.mkt-cd{background:rgba(139,92,246,.1);border-radius:8px;padding:7px 10px;font-size:9px;font-family:monospace;color:#8b5cf6;margin-top:5px}
+/* scanner blocker css merged above */
 
 /* ── CONTROLS ── */
 .tog-card{background:var(--card);border-radius:18px;overflow:hidden;box-shadow:var(--card-shadow);margin-bottom:12px}
@@ -1070,12 +1067,13 @@ function renderMarketStatus(){
   el.innerHTML = Object.entries(strats).map(function(e){
     var pair=e[0], st=e[1];
     var isUp   = st.trend === 'UP';
-    var dist   = st.dist_pct != null ? st.dist_pct : null;
-    var ob     = st.ob_buy || 0;
+    var dist   = st.dist_pct != null ? parseFloat(st.dist_pct) : null;
+    var ob     = parseFloat(st.ob_buy) || 0;
     var cd     = S.cooldowns && S.cooldowns[pair];
     var candles= st.candles || 0;
+    var price  = st.price  || 0;
+    var ema200 = st.ema200 || 0;
 
-    // ── Condizioni segnale ──
     var warmOk    = !!st.warmed_up;
     var candlesOk = candles >= 20;
     var emaOk     = !!st.ema200;
@@ -1083,47 +1081,51 @@ function renderMarketStatus(){
     var obOk      = ob >= 52;
     var allOk     = warmOk && candlesOk && emaOk && distOk && !cd;
 
-    function blocker(ok, label, val, waitish){
-      var state = ok ? 'ok' : (waitish ? 'wait' : 'no');
-      var icon  = ok
-        ? '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>'
-        : (waitish
-          ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
-          : '<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>');
-      return '<div class="mkt-blocker">'
-        + '<div class="mkt-blocker-icon '+state+'">'+icon+'</div>'
-        + '<span class="mkt-blocker-txt">'+label+'</span>'
-        + (val ? '<span class="mkt-blocker-val">'+val+'</span>' : '')
+    // FIX: toFixed previene garbage floating point (es. 13.200000000003%)
+    function fmtPct(v){ return parseFloat(v).toFixed(1) + '%'; }
+    function fmtPrice(v){
+      var n = parseFloat(v);
+      if(!n) return '--';
+      return n > 1000 ? n.toFixed(2) : n > 10 ? n.toFixed(3) : n.toFixed(4);
+    }
+
+    function condRow(state, label, val){
+      return '<div class="mkt-cond-row">'
+        + '<div class="mkt-cond-dot '+state+'"></div>'
+        + '<span class="mkt-cond-label">'+label+'</span>'
+        + '<span class="mkt-cond-val '+state+'">'+val+'</span>'
         + '</div>';
     }
 
-    var blockersHtml = '<div class="mkt-blockers">'
-      + blocker(warmOk,    'Warm-up completato',       warmOk    ? candles+' candele' : 'In corso...', !warmOk)
-      + blocker(candlesOk, 'Candele sufficienti',      candles+'/20', !candlesOk)
-      + blocker(emaOk,     'EMA200 calcolata',         st.ema200 ? st.ema200 : '...', !emaOk)
-      + blocker(distOk,    'Distanza EMA200 ≥ 0.15%',  dist != null ? (dist>=0?'+':'')+dist.toFixed(2)+'%' : '--', false)
-      + blocker(obOk,      'OB pressure ≥ 52%',        ob+'%', false)
-      + (cd ? '<div class="mkt-cd">⏳ Cooldown attivo: '+Math.floor(cd/60)+'m '+Math.round(cd%60)+'s</div>' : '')
-      + '</div>';
+    var conditions = ''
+      + condRow(warmOk?'ok':'wait', 'Warm-up', warmOk ? candles+' cand.' : 'In corso...')
+      + condRow(candlesOk?'ok':(warmOk?'no':'wait'), 'Candele', candles+'/20')
+      + condRow(emaOk?'ok':'wait', 'EMA200', emaOk ? fmtPrice(ema200) : '...')
+      + condRow(!emaOk?'wait':distOk?'ok':'no', 'Dist. EMA ≥ 0.15%', dist!=null ? (dist>=0?'+':'')+dist.toFixed(2)+'%' : '--')
+      + condRow(obOk?'ok':'no', 'OB pressure ≥ 52%', fmtPct(ob));
 
     return '<div class="mkt-card">'
       + '<div class="mkt-top">'
         + '<span class="mkt-sym">'+pair+'</span>'
         + '<span class="trend-pill '+(isUp?'up':'down')+'">'
           + '<svg viewBox="0 0 24 24">'+(isUp?'<polyline points="18 15 12 9 6 15"/>':'<polyline points="6 9 12 15 18 9"/>')+'</svg>'
-          + (isUp ? '▲ BULL' : '▼ BEAR')
+          + (isUp?'BULL':'BEAR')
         + '</span>'
       + '</div>'
-      + '<div class="mkt-chips">'
-        + (st.price ? '<span class="mkt-chip '+(isUp?'up':'down')+'">'+st.price.toFixed(2)+'</span>' : '')
-        + (st.ema_fast ? '<span class="mkt-chip info">EMA9: '+st.ema_fast+'</span>' : '')
-        + (st.ema_slow ? '<span class="mkt-chip warn">EMA21: '+st.ema_slow+'</span>' : '')
+      + '<div class="mkt-price-row">'
+        + '<span class="mkt-price-big '+(isUp?'up':'down')+'">'+(price?fmtPrice(price):'--')+'</span>'
+        + (ema200?'<span class="mkt-ema-badge e200">EMA200 '+fmtPrice(ema200)+'</span>':'')
       + '</div>'
-      + '<div class="mkt-ob"><span class="mkt-ob-lbl">BUY</span><div class="mkt-ob-bar"><div class="mkt-ob-fill buy" style="width:'+ob+'%"></div></div><span class="mkt-ob-pct buy">'+ob+'%</span></div>'
-      + '<div class="mkt-ob"><span class="mkt-ob-lbl">SELL</span><div class="mkt-ob-bar"><div class="mkt-ob-fill sell" style="width:'+(100-ob)+'%"></div></div><span class="mkt-ob-pct sell">'+(100-ob)+'%</span></div>'
-      + (allOk
-          ? '<div class="mkt-signal-ready"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg><span>Pronto per segnale PA</span></div>'
-          : blockersHtml)
+      + '<div class="mkt-ob-section">'
+        + '<div class="mkt-ob-label-row">'
+          + '<span class="buy">BUY '+fmtPct(ob)+'</span>'
+          + '<span class="sell">SELL '+fmtPct(100-ob)+'</span>'
+        + '</div>'
+        + '<div class="mkt-ob-track"><div class="mkt-ob-fill-buy" style="width:'+ob.toFixed(1)+'%"></div></div>'
+      + '</div>'
+      + '<div class="mkt-conditions">'+conditions+'</div>'
+      + (allOk ? '<div class="mkt-ready-banner"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg><span>Pronto per segnale PA</span></div>' : '')
+      + (cd ? '<div class="mkt-cd">⏳ Cooldown '+Math.floor(cd/60)+'m '+Math.round(cd%60)+'s</div>' : '')
       + '</div>';
   }).join('');
 }
