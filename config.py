@@ -1,7 +1,7 @@
-“””
+"""
 Bot Configuration
 Persistent state via SQLite — app controls everything at runtime.
-“””
+"""
 import os
 from dataclasses import dataclass, field
 from typing import List
