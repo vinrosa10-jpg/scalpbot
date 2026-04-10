@@ -1,5 +1,5 @@
 """
-ScalpingBot — Main orchestrator
+ScalpingBot -- Main orchestrator
 Price Action strategy on closed candles only.
 """
 
@@ -14,6 +14,7 @@ from order_manager import OrderManager
 from data_feed import DataFeed
 from pair_selector import PairSelector
 from eod_manager import EndOfDayManager
+from autolearn import AutoLearn
 
 
 class ScalpingBot:
@@ -30,10 +31,12 @@ class ScalpingBot:
         self.pair_selector = PairSelector(self.client, config)
         self.eod_manager = EndOfDayManager(self.client, config)
         self.risk_manager.set_eod_manager(self.eod_manager)
+        self.autolearn = AutoLearn(config)
 
     def set_api_server(self, api_server):
         self.api_server = api_server
         self.order_manager.api_server = api_server
+        self.autolearn.api_server = api_server
 
     def _log(self, type_: str, msg: str):
         if type_ == 'win':
@@ -47,30 +50,30 @@ class ScalpingBot:
 
     async def start(self):
         self.running = True
-        self._log('info', '🤖 ScalpBot started')
+        self._log('info', ' ScalpBot started')
 
         if self.config.testnet:
-            self._log('warn', '⚠️ TESTNET MODE')
+            self._log('warn', ' TESTNET MODE')
 
         # Log stato mercati all'avvio per debug immediato
         self._log('info',
-            f"🔧 Markets: SPOT={'ON' if self.config.enable_spot else 'OFF'} | "
+            f" Markets: SPOT={'ON' if self.config.enable_spot else 'OFF'} | "
             f"FUTURES={'ON' if self.config.enable_futures else 'OFF'}"
         )
 
         if not self.config.enable_spot and not self.config.enable_futures:
-            self._log('warn', '⚠️ Attenzione: sia SPOT che FUTURES sono disabilitati — nessun trade verrà aperto!')
+            self._log('warn', ' Attenzione: sia SPOT che FUTURES sono disabilitati -- nessun trade verr aperto!')
 
         await self.client.sync_clock()
 
         # Select pairs
         if self.config.auto_select_pairs:
-            self._log('info', '🔍 Auto-selecting pairs...')
+            self._log('info', ' Auto-selecting pairs...')
             await self.pair_selector.start()
             pairs = await self.pair_selector.get_pairs()
         else:
             pairs = self.config.pairs
-            self._log('info', f'📋 Pairs: {", ".join(pairs)}')
+            self._log('info', f' Pairs: {", ".join(pairs)}')
 
         # Init strategies
         for pair in pairs:
@@ -81,7 +84,7 @@ class ScalpingBot:
             await self.client.set_leverage_all(pairs, self.config.futures_leverage)
 
         # Warm-up all strategies
-        self._log('info', f'📊 Warming up {self.config.kline_interval} candles...')
+        self._log('info', f' Warming up {self.config.kline_interval} candles...')
         await asyncio.gather(*[
             strat.warm_up_from_api(self.client)
             for strat in self.strategies.values()
@@ -90,17 +93,17 @@ class ScalpingBot:
         # Verify warm-up
         failed = [p for p, s in self.strategies.items() if not s._warmed_up]
         if failed:
-            logger.warning(f"⚠️ Warm-up failed for: {failed} — retrying...")
+            logger.warning(f" Warm-up failed for: {failed} -- retrying...")
             await asyncio.gather(*[
                 self.strategies[p].warm_up_from_api(self.client)
                 for p in failed
             ])
             still_failed = [p for p in failed if not self.strategies[p]._warmed_up]
             if still_failed:
-                logger.warning(f"⚠️ Still failed: {still_failed} — signals blocked until data arrives")
+                logger.warning(f" Still failed: {still_failed} -- signals blocked until data arrives")
 
         ready = [p for p, s in self.strategies.items() if s._warmed_up]
-        self._log('info', f'✅ Ready: {", ".join(ready)} | Interval: {self.config.kline_interval}')
+        self._log('info', f' Ready: {", ".join(ready)} | Interval: {self.config.kline_interval}')
 
         # Start data streams
         await self.data_feed.start(
@@ -111,17 +114,33 @@ class ScalpingBot:
         )
 
         # Main loop
+        import datetime as _dt
+        _last_autolearn_day = -1
+
         while self.running:
             await self.order_manager.monitor_open_orders()
+
+            # AutoLearn -- esegui ogni notte a mezzanotte
+            _now = _dt.datetime.now()
+            if _now.hour == 0 and _now.minute == 0 and _now.day != _last_autolearn_day:
+                _last_autolearn_day = _now.day
+                self._log('info', 'AutoLearn: analisi notturna avviata...')
+                try:
+                    changed = self.autolearn.run()
+                    if changed:
+                        self._log('info', f'AutoLearn: parametri aggiornati -- TP={self.config.spot_take_profit_pct:.3%} SL={self.config.spot_stop_loss_pct:.3%}')
+                except Exception as e:
+                    logger.warning(f'AutoLearn error: {e}')
+
             await asyncio.sleep(1)
 
     async def stop(self):
-        self._log('info', '🛑 Stopping...')
+        self._log('info', ' Stopping...')
         self.running = False
         await self.order_manager.close_all_positions()
         await self.data_feed.stop()
         await self.pair_selector.stop()
-        self._log('info', '✅ Stopped cleanly.')
+        self._log('info', ' Stopped cleanly.')
 
     async def _on_kline(self, pair: str, data: dict):
         strat = self.strategies.get(pair)
@@ -150,7 +169,7 @@ class ScalpingBot:
 
         if self.risk_manager.is_daily_limit_hit():
             if self.running:
-                self._log('loss', '❌ Daily loss limit hit. Stopping.')
+                self._log('loss', ' Daily loss limit hit. Stopping.')
                 await self.stop()
             return
 
@@ -171,14 +190,14 @@ class ScalpingBot:
         # FIX: spot Binance non supporta SHORT (no margin trading su testnet)
         # Blocca SHORT se siamo solo in spot mode
         if signal == "SHORT" and self.config.enable_spot and not self.config.enable_futures:
-            logger.debug(f"🚫 {pair}: SHORT ignorato in modalità SPOT-only")
+            logger.debug(f" {pair}: SHORT ignorato in modalit SPOT-only")
             return
 
         if not self.risk_manager.can_open_trade(pair):
-            self._log('info', f'🚫 {pair}: can_open_trade=False (max trades raggiunto o cooldown attivo)')
+            self._log('info', f' {pair}: can_open_trade=False (max trades raggiunto o cooldown attivo)')
             return
 
-        self._log('info', f'📡 Signal: {signal} | {pair}')
+        self._log('info', f' Signal: {signal} | {pair}')
 
         if self.config.enable_spot:
             await self.order_manager.open_trade(pair, signal, market="SPOT")
