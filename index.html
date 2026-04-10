@@ -394,6 +394,7 @@ input:checked+.sw-sl::before{transform:translateX(20px);background:#fff}
       </div>
     </div>
     <div class="hpill off" id="hstatus"><div class="hpill-dot"></div><span id="hstatustxt">FERMO</span></div>
+    <button id="notifBtn" onclick="NOTIF.enabled ? (NOTIF.enabled=false, updateNotifBtn(), toast('Notifiche disattivate','yellow')) : notifRequestPermission()" style="background:var(--card);border:1px solid var(--border2);border-radius:20px;padding:6px 12px;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;box-shadow:var(--card-shadow);color:var(--text3);font-family:inherit"><svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>OFF</button>
   </div>
   <div class="cbar offline" id="connbar" onclick="testConn()">
     <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
@@ -792,6 +793,7 @@ function init(){
   poll = setInterval(fetchS, 3000);
   drawPnlChart();
   initPullToRefresh();
+  notifInit();
 }
 
 async function fetchS(){
@@ -824,6 +826,8 @@ async function fetchS(){
     setConn(true);
     pnlH.push({t: Date.now(), v: S.pnl});
     if(pnlH.length > 60) pnlH.shift();
+    // Controlla cambiamenti per notifiche
+    notifCheckChanges(d);
     updateUI();
     if(document.getElementById('pageCharts').classList.contains('active')) cUpdateStrategy();
   }catch(e){
@@ -1326,6 +1330,154 @@ function cDraw(){
     ctx.strokeStyle=last.c>=last.o?'rgba(0,184,148,0.4)':'rgba(244,63,94,0.4)';
     ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.stroke(); ctx.setLineDash([]);
   }
+}
+
+// ── PUSH NOTIFICATIONS ──────────────────────────────────────
+var NOTIF = {
+  enabled: false,
+  permission: 'default',
+  // Stato precedente per rilevare cambiamenti
+  _prevTrades: [],
+  _prevPnl: 0,
+  _lastSnapshotHour: -1
+};
+
+// Inizializza notifiche
+async function notifInit(){
+  if(!('Notification' in window)){ return; }
+  NOTIF.permission = Notification.permission;
+  if(NOTIF.permission === 'granted'){
+    NOTIF.enabled = true;
+    updateNotifBtn();
+  }
+}
+
+// Richiedi permesso
+async function notifRequestPermission(){
+  if(!('Notification' in window)){
+    toast('Notifiche non supportate su questo browser', 'yellow');
+    return;
+  }
+  var perm = await Notification.requestPermission();
+  NOTIF.permission = perm;
+  NOTIF.enabled = perm === 'granted';
+  updateNotifBtn();
+  if(NOTIF.enabled){
+    toast('Notifiche attivate!', 'green');
+    // Notifica di test
+    setTimeout(function(){
+      sendNotif('ScalpBot', 'Notifiche attive! Riceverai aggiornamenti sui trade.', '📱');
+    }, 500);
+  } else {
+    toast('Permesso negato', 'red');
+  }
+}
+
+function updateNotifBtn(){
+  var btn = document.getElementById('notifBtn');
+  if(!btn) return;
+  if(NOTIF.enabled){
+    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><circle cx="19" cy="5" r="3" fill="#00b894"/></svg>ON';
+    btn.style.color = 'var(--accent)';
+  } else {
+    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>OFF';
+    btn.style.color = 'var(--text3)';
+  }
+}
+
+// Invia notifica nativa
+function sendNotif(title, body, icon){
+  if(!NOTIF.enabled || Notification.permission !== 'granted') return;
+  try{
+    var n = new Notification(title, {
+      body: body,
+      icon: icon || '/favicon.ico',
+      badge: '/favicon.ico',
+      vibrate: [200, 100, 200],
+      tag: title + body, // evita duplicati
+      renotify: false
+    });
+    n.onclick = function(){ window.focus(); n.close(); };
+    setTimeout(function(){ n.close(); }, 8000);
+  } catch(e){}
+}
+
+// Controlla cambiamenti stato e invia notifiche
+function notifCheckChanges(newState){
+  if(!NOTIF.enabled) return;
+
+  var newTrades  = newState.trades  || [];
+  var prevTrades = NOTIF._prevTrades || [];
+  var newPnl     = newState.daily_pnl || 0;
+
+  // -- Trade APERTO (nuova entry in trades) --
+  newTrades.forEach(function(trade){
+    var wasOpen = prevTrades.find(function(t){
+      return t.symbol === trade.symbol && t.side === trade.side;
+    });
+    if(!wasOpen){
+      var mkt = trade.market === 'FUTURES' ? 'FUT' : 'SPOT';
+      sendNotif(
+        (trade.side === 'LONG' ? '📈' : '📉') + ' Trade Aperto — ' + trade.symbol,
+        trade.side + ' ' + mkt + ' | Entry: ' + trade.entry +
+        ' | TP: ' + (trade.tp_price || '--') +
+        ' | SL: ' + (trade.sl_price || '--'),
+        trade.side === 'LONG' ? '📈' : '📉'
+      );
+    }
+  });
+
+  // -- Trade CHIUSO (era in trades, ora non c'è più) --
+  prevTrades.forEach(function(trade){
+    var stillOpen = newTrades.find(function(t){
+      return t.symbol === trade.symbol && t.side === trade.side;
+    });
+    if(!stillOpen){
+      // Calcola PnL approssimativo dal delta
+      var pnlDelta = newPnl - NOTIF._prevPnl;
+      var isWin    = pnlDelta >= 0;
+      sendNotif(
+        (isWin ? '✅ WIN' : '❌ LOSS') + ' — ' + trade.symbol,
+        trade.side + ' chiuso | ' +
+        (pnlDelta >= 0 ? '+' : '') + pnlDelta.toFixed(3) + ' USDC' +
+        ' | PnL giornaliero: ' + (newPnl >= 0 ? '+' : '') + newPnl.toFixed(3) + '$',
+        isWin ? '✅' : '❌'
+      );
+    }
+  });
+
+  // -- Snapshot PnL ogni ora --
+  var now  = new Date();
+  var hour = now.getHours();
+  if(hour !== NOTIF._lastSnapshotHour && now.getMinutes() === 0){
+    NOTIF._lastSnapshotHour = hour;
+    var wins  = newState.wins  || 0;
+    var losses= newState.losses|| 0;
+    var tot   = wins + losses;
+    var wr    = tot > 0 ? Math.round(wins/tot*100) : 0;
+    sendNotif(
+      '📊 Report Orario ScalpBot',
+      'PnL: ' + (newPnl >= 0 ? '+' : '') + newPnl.toFixed(3) + ' USDC' +
+      ' | W/L: ' + wins + '/' + losses +
+      ' | WinRate: ' + wr + '%',
+      '📊'
+    );
+  }
+
+  // -- Daily loss limit alert --
+  var cap = newState.capital || 100;
+  var lossLimit = S.max_daily_loss || 15;
+  if(newPnl < 0 && Math.abs(newPnl) >= lossLimit * 0.8 && NOTIF._prevPnl > newPnl){
+    sendNotif(
+      '⚠️ Attenzione — Daily Loss',
+      'Perdita giornaliera: ' + newPnl.toFixed(3) + ' USDC (80% del limite)',
+      '⚠️'
+    );
+  }
+
+  // Aggiorna stato precedente
+  NOTIF._prevTrades = JSON.parse(JSON.stringify(newTrades));
+  NOTIF._prevPnl    = newPnl;
 }
 
 autoLogin();
