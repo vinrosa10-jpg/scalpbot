@@ -28,6 +28,8 @@ def save_state(config: "Config"):
             "position_size_usdt":         str(config.position_size_usdt),
             "spot_take_profit_pct":       str(config.spot_take_profit_pct),
             "spot_stop_loss_pct":         str(config.spot_stop_loss_pct),
+            "max_open_trades":            str(config.max_open_trades),
+            "max_daily_loss_usdt":        str(config.max_daily_loss_usdt),
         })
     except Exception:
         pass
@@ -67,7 +69,7 @@ class Config:
     stop_loss_pct: float = 0.0015
 
     # Spot params
-    position_size_usdt: float = 25.0
+    position_size_usdt: float = 100.0
     spot_take_profit_pct: float = 0.003
     spot_stop_loss_pct: float = 0.0015
 
@@ -89,7 +91,6 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
-        # FIX: leggi enable_spot/enable_futures da env var (non hardcoded False)
         env_spot    = os.getenv("ENABLE_SPOT",    "false").lower() == "true"
         env_futures = os.getenv("ENABLE_FUTURES", "false").lower() == "true"
 
@@ -109,7 +110,7 @@ class Config:
             futures_leverage=int(os.getenv("FUTURES_LEVERAGE", "3")),
             take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.003")),
             stop_loss_pct=float(os.getenv("STOP_LOSS_PCT", "0.0015")),
-            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "25")),
+            position_size_usdt=float(os.getenv("POSITION_SIZE_USDT", "100")),
             spot_take_profit_pct=float(os.getenv("SPOT_TAKE_PROFIT_PCT", "0.003")),
             spot_stop_loss_pct=float(os.getenv("SPOT_STOP_LOSS_PCT", "0.0015")),
             max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "6")),
@@ -121,7 +122,7 @@ class Config:
             order_type=os.getenv("ORDER_TYPE", "MARKET"),
         )
 
-        # Override con stato DB -- ma env ha sempre priorita' se DB ha 'false'
+        # Override con stato DB -- DB ha priorita' sulle env var
         state = _load_state()
         if state:
             if "enable_spot" in state:
@@ -142,20 +143,26 @@ class Config:
                 cfg.spot_take_profit_pct = float(state["spot_take_profit_pct"])
             if "spot_stop_loss_pct" in state:
                 cfg.spot_stop_loss_pct = float(state["spot_stop_loss_pct"])
+            if "max_open_trades" in state:
+                cfg.max_open_trades = int(state["max_open_trades"])
+            if "max_daily_loss_usdt" in state:
+                cfg.max_daily_loss_usdt = float(state["max_daily_loss_usdt"])
 
             from loguru import logger
             logger.info(
-                f"? State loaded | "
+                f"State loaded | "
                 f"Spot={'ON' if cfg.enable_spot else 'OFF'} "
                 f"Futures={'ON' if cfg.enable_futures else 'OFF'} "
-                f"TP={cfg.take_profit_pct:.3%} SL={cfg.stop_loss_pct:.3%}"
+                f"TP={cfg.take_profit_pct:.3%} SL={cfg.stop_loss_pct:.3%} "
+                f"Size={cfg.position_size_usdt} MaxTrades={cfg.max_open_trades}"
             )
         else:
             from loguru import logger
             logger.info(
-                f"? No saved state -- using env vars | "
+                f"No saved state -- using env vars | "
                 f"Spot={'ON' if cfg.enable_spot else 'OFF'} "
-                f"Futures={'ON' if cfg.enable_futures else 'OFF'}"
+                f"Futures={'ON' if cfg.enable_futures else 'OFF'} "
+                f"Size={cfg.position_size_usdt}"
             )
 
         return cfg
