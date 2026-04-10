@@ -1,11 +1,10 @@
-"""
-API Server — Exposes bot state to mobile app.
-Master endpoints protected by token.
-"""
+# api_server.py -- ScalpBot
+# Master endpoints protected by token.
 
 import asyncio
 import os
 import time
+import sqlite3
 from aiohttp import web
 from loguru import logger
 from datetime import datetime
@@ -45,7 +44,7 @@ class APIServer:
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         await web.TCPSite(self._runner, '0.0.0.0', self.port).start()
-        logger.info(f"📱 API Server on port {self.port}")
+        logger.info(f"API Server on port {self.port}")
 
     async def stop(self):
         if self._runner:
@@ -70,7 +69,7 @@ class APIServer:
         return resp
 
     async def _root(self, _):
-        return web.json_response({"ok": True, "service": "ScalpBot Pro", "version": "2.0"})
+        return web.json_response({"ok": True, "service": "ScalpBot Pro", "version": "2.1"})
 
     async def _health(self, _):
         return web.json_response({"ok": True})
@@ -79,7 +78,7 @@ class APIServer:
         rm = self.bot.risk_manager
         om = self.bot.order_manager
 
-        # Open trades with REAL tp_price and sl_price
+        # Open trades
         trades = []
         for key, trade in list(om.trades.items()):
             try:
@@ -90,16 +89,16 @@ class APIServer:
                 else:
                     pnl = (trade.entry_price - current) * trade.qty
                 trades.append({
-                    "symbol":    trade.pair,
-                    "side":      trade.side,
-                    "market":    trade.market,
-                    "pnl":       round(pnl, 4),
-                    "entry":     trade.entry_price,
-                    "current":   current,
-                    "tp_price":  trade.tp_price,   # REAL prices
-                    "sl_price":  trade.sl_price,   # REAL prices
-                    "pattern":   trade.pattern,
-                    "elapsed":   round(time.time() - trade.opened_at),
+                    "symbol":   trade.pair,
+                    "side":     trade.side,
+                    "market":   trade.market,
+                    "pnl":      round(pnl, 4),
+                    "entry":    trade.entry_price,
+                    "current":  current,
+                    "tp_price": trade.tp_price,
+                    "sl_price": trade.sl_price,
+                    "pattern":  trade.pattern,
+                    "elapsed":  round(time.time() - trade.opened_at),
                 })
             except Exception:
                 continue
@@ -117,32 +116,31 @@ class APIServer:
         # Strategy data per pair
         strategies = {}
         for pair, strat in self.bot.strategies.items():
-            price = strat.last_close or 0
-            ema200 = strat.ema_trend.value
-            dist_pct = round((price - ema200) / ema200 * 100, 3) if (price and ema200) else None
-            trend = "UP" if (price and ema200 and price > ema200) else "DOWN"
+            price  = strat.last_close or 0
+            ema50  = strat.ema_trend.value
+            dist_pct = round((price - ema50) / ema50 * 100, 3) if (price and ema50) else None
+            trend  = "UP" if (price and ema50 and price > ema50) else "DOWN"
 
-            # What's needed for next signal
             missing = []
             if not strat._warmed_up:
                 missing.append("Warming up...")
-            elif len(strat.candles) < 20:
-                missing.append(f"Need {20 - len(strat.candles)} more candles")
-            elif ema200 and price:
-                if dist_pct is not None and abs(dist_pct) < 0.15:
-                    missing.append("Too close to EMA200 (choppy zone)")
-                elif trend == "DOWN" and self.config.enable_futures:
-                    missing.append("Waiting for PA SHORT pattern")
+            elif len(strat.candles) < 10:
+                missing.append(f"Need {10 - len(strat.candles)} more candles")
+            elif ema50 and price:
+                if dist_pct is not None and abs(dist_pct) < 0.03:
+                    missing.append("Too close to EMA50 (choppy)")
                 elif trend == "UP":
-                    missing.append("Waiting for PA LONG pattern")
+                    missing.append("Waiting for LONG pattern")
+                elif trend == "DOWN" and self.config.enable_futures:
+                    missing.append("Waiting for SHORT pattern")
                 else:
-                    missing.append("Trend not clear")
+                    missing.append("Trend DOWN - spot only LONG blocked")
 
             strategies[pair] = {
-                "price":     round(price, 2) if price else None,
-                "ema200":    round(ema200, 2) if ema200 else None,
-                "ema_fast":  round(strat.ema_fast.value, 2) if strat.ema_fast.value else None,
-                "ema_slow":  round(strat.ema_slow.value, 2) if strat.ema_slow.value else None,
+                "price":     round(price, 4) if price else None,
+                "ema200":    round(ema50, 4) if ema50 else None,
+                "ema_fast":  round(strat.ema_fast.value, 4) if strat.ema_fast.value else None,
+                "ema_slow":  round(strat.ema_slow.value, 4) if strat.ema_slow.value else None,
                 "trend":     trend,
                 "dist_pct":  dist_pct,
                 "warmed_up": strat._warmed_up,
@@ -159,7 +157,7 @@ class APIServer:
             if time.time() < until
         }
 
-        # Current params
+        # Current params -- include max_trades and max_loss for app settings
         params = {
             "tp_pct":          round(self.config.take_profit_pct * 100, 3),
             "sl_pct":          round(self.config.stop_loss_pct * 100, 3),
@@ -170,6 +168,8 @@ class APIServer:
             "spot_enabled":    self.config.enable_spot,
             "futures_enabled": self.config.enable_futures,
             "interval":        self.config.kline_interval,
+            "max_trades":      self.config.max_open_trades,
+            "max_loss":        self.config.max_daily_loss_usdt,
         }
 
         return web.json_response({
@@ -190,9 +190,9 @@ class APIServer:
     async def _command(self, request):
         try:
             body = await request.json()
-            cmd = body.get("command", "")
-            logger.info(f"📱 CMD: {cmd}")
-            self.add_log("info", f"📱 {cmd}")
+            cmd  = body.get("command", "")
+            logger.info(f"CMD: {cmd}")
+            self.add_log("info", f"CMD: {cmd}")
 
             if cmd == "stop":
                 asyncio.create_task(self.bot.stop())
@@ -218,24 +218,24 @@ class APIServer:
                 return web.json_response({"ok": True})
 
             elif cmd == "set_market":
-                market = body.get("market", "spot")
+                market  = body.get("market", "spot")
                 enabled = body.get("enabled", True)
                 if market == "spot":
                     self.config.enable_spot = enabled
                     if enabled:
                         self.config.enable_futures = False
                         self.config.take_profit_pct = self.config.spot_take_profit_pct
-                        self.config.stop_loss_pct = self.config.spot_stop_loss_pct
+                        self.config.stop_loss_pct   = self.config.spot_stop_loss_pct
                 elif market == "futures":
                     self.config.enable_futures = enabled
                     if enabled:
-                        self.config.enable_spot = False
-                        self.config.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "0.01"))
-                        self.config.stop_loss_pct = float(os.getenv("STOP_LOSS_PCT", "0.005"))
+                        self.config.enable_spot     = False
+                        self.config.take_profit_pct = float(os.getenv("TAKE_PROFIT_PCT", "0.003"))
+                        self.config.stop_loss_pct   = float(os.getenv("STOP_LOSS_PCT",   "0.0015"))
                 save_state(self.config)
                 status = "ON" if enabled else "OFF"
-                self.add_log("info", f"🔄 {market.upper()} {status} | TP={self.config.take_profit_pct:.2%}")
-                logger.info(f"📱 {market.upper()} {status} | spot={self.config.enable_spot} fut={self.config.enable_futures}")
+                self.add_log("info", f"{market.upper()} {status}")
+                logger.info(f"CMD set_market: {market.upper()} {status} | spot={self.config.enable_spot} fut={self.config.enable_futures}")
                 return web.json_response({"ok": True})
 
             elif cmd == "set_params":
@@ -259,15 +259,49 @@ class APIServer:
                         self.config.position_size_usdt = float(size)
 
                 save_state(self.config)
-                self.add_log("info", f"⚙️ [{market.upper()}] TP={self.config.take_profit_pct:.2%} SL={self.config.stop_loss_pct:.2%}")
-                logger.info(f"📱 Params [{market}] TP={self.config.take_profit_pct:.3%} SL={self.config.stop_loss_pct:.3%} size={size}")
+                self.add_log("info", f"[{market.upper()}] TP={self.config.take_profit_pct:.3%} SL={self.config.stop_loss_pct:.3%} size={size}")
+                logger.info(f"CMD set_params [{market}] TP={self.config.take_profit_pct:.3%} SL={self.config.stop_loss_pct:.3%} size={size}")
                 return web.json_response({"ok": True})
 
             elif cmd == "set_risk":
-                target = body.get("target", 20) / 100
-                self.config.daily_profit_target_pct = target
-                self.bot.risk_manager._target_hit = False
+                # Supporta target, max_trades e max_loss tutti opzionali
+                target     = body.get("target")
+                max_trades = body.get("max_trades")
+                max_loss   = body.get("max_loss")
+
+                if target is not None:
+                    self.config.daily_profit_target_pct = float(target) / 100
+                    self.bot.risk_manager._target_hit   = False
+
+                if max_trades is not None:
+                    self.config.max_open_trades = int(max_trades)
+                    # Aggiorna anche il risk manager a runtime
+                    if hasattr(self.bot.risk_manager, 'max_open_trades'):
+                        self.bot.risk_manager.max_open_trades = int(max_trades)
+
+                if max_loss is not None:
+                    self.config.max_daily_loss_usdt = float(max_loss)
+                    if hasattr(self.bot.risk_manager, 'max_daily_loss_usdt'):
+                        self.bot.risk_manager.max_daily_loss_usdt = float(max_loss)
+
+                save_state(self.config)
+                logger.info(f"CMD set_risk: max_trades={self.config.max_open_trades} max_loss={self.config.max_daily_loss_usdt}")
                 return web.json_response({"ok": True})
+
+            elif cmd == "reset_db":
+                # Resetta lo stato del DB -- i valori torneranno alle env var al prossimo restart
+                try:
+                    db_path = os.environ.get("DB_PATH", "/data/scalpbot.db")
+                    conn = sqlite3.connect(db_path)
+                    conn.execute("DELETE FROM bot_state")
+                    conn.commit()
+                    conn.close()
+                    logger.info("DB state reset via app command")
+                    self.add_log("warn", "DB resettato - riavvia il bot")
+                    return web.json_response({"ok": True, "msg": "DB resettato"})
+                except Exception as e:
+                    logger.error(f"reset_db error: {e}")
+                    return web.json_response({"ok": False, "msg": str(e)}, status=500)
 
             return web.json_response({"ok": False, "msg": "Unknown command"})
 
@@ -275,7 +309,7 @@ class APIServer:
             logger.error(f"Command error: {e}")
             return web.json_response({"ok": False, "msg": str(e)}, status=500)
 
-    # ── MASTER ────────────────────────────────────────────────
+    # ?? MASTER ????????????????????????????????????????????????
 
     async def _master_report(self, request):
         if not self._is_master(request):
