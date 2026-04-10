@@ -350,6 +350,14 @@ input:checked+.sw-sl::before{transform:translateX(20px);background:#fff}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.green{color:var(--accent)}.toast.red{color:var(--red)}.toast.yellow{color:var(--yellow)}
 .empty{text-align:center;padding:24px 16px;color:var(--text3);font-size:12px;line-height:2}
+/* ── PAIR TOGGLE ── */
+.pair-tog{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--bg3);border-radius:10px;cursor:pointer;font-size:11px;font-weight:600;color:var(--text2);transition:.15s}
+.pair-tog input{display:none}
+.pair-tog span{flex:1}
+.pair-tog:has(input:checked){background:var(--accent-dim);color:var(--accent)}
+.pair-tog::before{content:'';width:16px;height:16px;border-radius:4px;border:2px solid var(--border2);flex-shrink:0;transition:.15s}
+.pair-tog:has(input:checked)::before{background:var(--accent);border-color:var(--accent)}
+
 </style>
 </head>
 <body class="theme-clear">
@@ -551,19 +559,44 @@ input:checked+.sw-sl::before{transform:translateX(20px);background:#fff}
       <div style="padding-top:10px">
         <div class="pg-ttl">Settings</div>
         <div class="pg-sub">Parametri bot e account</div>
+        <!-- SPOT PARAMS -->
+        <div class="sec-hdr"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Parametri Spot</div>
+        <div class="set-card">
+          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg><div><div class="set-lbl">Take Profit %</div><div class="set-desc">Obiettivo profitto per trade</div></div></div><input class="set-inp" id="stp_spot" type="number" step="0.01" value="0.3"></div>
+          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg><div><div class="set-lbl">Stop Loss %</div><div class="set-desc">Limite perdita per trade</div></div></div><input class="set-inp" id="ssl_spot" type="number" step="0.01" value="0.15"></div>
+          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><div><div class="set-lbl">Size USDC</div><div class="set-desc">Importo per trade</div></div></div><input class="set-inp" id="ssize_spot" type="number" step="1" value="100"></div>
+        </div>
+        <!-- FUTURES PARAMS -->
         <div class="sec-hdr"><svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Parametri Futures</div>
         <div class="set-card">
           <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg><div><div class="set-lbl">Take Profit %</div><div class="set-desc">Obiettivo profitto</div></div></div><input class="set-inp" id="stp_fut" type="number" step="0.01" value="1.0"></div>
           <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg><div><div class="set-lbl">Stop Loss %</div><div class="set-desc">Limite perdita</div></div></div><input class="set-inp" id="ssl_fut" type="number" step="0.01" value="0.5"></div>
           <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><div><div class="set-lbl">Size USDT</div><div class="set-desc">Dimensione posizione</div></div></div><input class="set-inp" id="ssize_fut" type="number" step="1" value="25"></div>
         </div>
-        <div class="sec-hdr"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Parametri Spot</div>
+        <!-- RISK PARAMS -->
+        <div class="sec-hdr"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Gestione Rischio</div>
         <div class="set-card">
-          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg><div><div class="set-lbl">Take Profit %</div><div class="set-desc">Obiettivo profitto</div></div></div><input class="set-inp" id="stp_spot" type="number" step="0.01" value="0.8"></div>
-          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg><div><div class="set-lbl">Stop Loss %</div><div class="set-desc">Limite perdita</div></div></div><input class="set-inp" id="ssl_spot" type="number" step="0.01" value="0.4"></div>
-          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><div><div class="set-lbl">Size USDT</div><div class="set-desc">Dimensione posizione</div></div></div><input class="set-inp" id="ssize_spot" type="number" step="1" value="25"></div>
+          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><div><div class="set-lbl">Max Trade Aperti</div><div class="set-desc">Posizioni simultanee</div></div></div><input class="set-inp" id="smax_trades" type="number" step="1" min="1" max="20" value="6"></div>
+          <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><div><div class="set-lbl">Max Perdita Giornaliera</div><div class="set-desc">Stop automatico (USDC)</div></div></div><input class="set-inp" id="smax_loss" type="number" step="1" value="15"></div>
         </div>
-        <button class="save-btn" id="saveBtn" onclick="saveS()"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Salva Parametri</button>
+        <!-- COPPIE -->
+        <div class="sec-hdr"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Coppie Attive</div>
+        <div class="set-card" style="padding:14px 16px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:10px">Attiva/disattiva — richiede restart del bot</div>
+          <div id="pairsGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label class="pair-tog"><input type="checkbox" value="ETHUSDC" checked onchange="updatePairsLabel()"><span>ETH/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="BNBUSDC" checked onchange="updatePairsLabel()"><span>BNB/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="XRPUSDC" checked onchange="updatePairsLabel()"><span>XRP/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="SOLUSDC" checked onchange="updatePairsLabel()"><span>SOL/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="ADAUSDC" checked onchange="updatePairsLabel()"><span>ADA/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="DOGEUSDC" checked onchange="updatePairsLabel()"><span>DOGE/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="BTCUSDC" onchange="updatePairsLabel()"><span>BTC/USDC</span></label>
+            <label class="pair-tog"><input type="checkbox" value="LTCUSDC" onchange="updatePairsLabel()"><span>LTC/USDC</span></label>
+          </div>
+          <div style="margin-top:10px;padding:8px 10px;background:var(--bg3);border-radius:8px;font-size:9px;font-family:monospace;color:var(--accent)" id="pairsPreview">ETHUSDC,BNBUSDC,XRPUSDC,SOLUSDC,ADAUSDC,DOGEUSDC</div>
+        </div>
+        <button class="save-btn" id="saveBtn" onclick="saveS()"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Salva Tutto</button>
+        <button class="outline-btn red" onclick="resetDB()"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Reset DB State</button>
         <div class="sec-hdr" style="margin-top:20px"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>Connessione</div>
         <div class="set-card">
           <div class="set-row"><div class="set-l"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg><div><div class="set-lbl">Server URL</div><div class="set-desc">Indirizzo Render</div></div></div><input class="set-inp" id="surl" type="text" style="width:155px;font-size:10px"></div>
@@ -708,24 +741,41 @@ async function saveS(){
   var url = document.getElementById('surl').value.trim();
   if(url){ S.url = url; try{ localStorage.setItem('sburl', url); }catch(e){} }
 
-  var tp_fut   = parseFloat(document.getElementById('stp_fut').value) / 100;
-  var sl_fut   = parseFloat(document.getElementById('ssl_fut').value) / 100;
-  var size_fut = parseFloat(document.getElementById('ssize_fut').value);
-  var tp_spot  = parseFloat(document.getElementById('stp_spot').value) / 100;
-  var sl_spot  = parseFloat(document.getElementById('ssl_spot').value) / 100;
-  var size_spot= parseFloat(document.getElementById('ssize_spot').value);
+  var tp_fut    = parseFloat(document.getElementById('stp_fut').value) / 100;
+  var sl_fut    = parseFloat(document.getElementById('ssl_fut').value) / 100;
+  var size_fut  = parseFloat(document.getElementById('ssize_fut').value);
+  var tp_spot   = parseFloat(document.getElementById('stp_spot').value) / 100;
+  var sl_spot   = parseFloat(document.getElementById('ssl_spot').value) / 100;
+  var size_spot = parseFloat(document.getElementById('ssize_spot').value);
+  var max_trades= parseInt(document.getElementById('smax_trades').value);
+  var max_loss  = parseFloat(document.getElementById('smax_loss').value);
 
   try {
-    // Manda SEMPRE entrambi i mercati, non solo quello attivo
     await _post('/command', {command:'set_params', tp:tp_fut,  sl:sl_fut,  size:size_fut,  market:'futures'});
     await _post('/command', {command:'set_params', tp:tp_spot, sl:sl_spot, size:size_spot, market:'spot'});
-    toast('Parametri salvati', 'green');
+    await _post('/command', {command:'set_risk',   max_trades:max_trades, max_loss:max_loss});
+    toast('Tutto salvato!', 'green');
     setTimeout(fetchS, 800);
   } catch(e) {
-    toast('Errore salvataggio: server non raggiungibile', 'red');
+    toast('Errore: server non raggiungibile', 'red');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Salva Parametri';
+    btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Salva Tutto';
+  }
+}
+
+function updatePairsLabel(){
+  var checked = Array.from(document.querySelectorAll('#pairsGrid input:checked')).map(function(i){return i.value;});
+  document.getElementById('pairsPreview').textContent = checked.join(',') || 'Nessuna coppia selezionata';
+}
+
+async function resetDB(){
+  if(!confirm('Reset DB state? I parametri torneranno ai valori delle env var.')) return;
+  try{
+    await _post('/command', {command:'reset_db'});
+    toast('DB resettato! Riavvia il bot.', 'green');
+  } catch(e){
+    toast('Usa la Shell: python3 -c "import sqlite3; c=sqlite3.connect(\'/data/scalpbot.db\'); c.execute(\'DELETE FROM bot_state\'); c.commit()"', 'yellow');
   }
 }
 
@@ -821,6 +871,8 @@ async function fetchS(){
       if(p.spot_tp_pct)  document.getElementById('stp_spot').value   = p.spot_tp_pct;
       if(p.spot_sl_pct)  document.getElementById('ssl_spot').value   = p.spot_sl_pct;
       if(p.spot_size)    document.getElementById('ssize_spot').value = p.spot_size;
+      if(p.max_trades !== undefined) document.getElementById('smax_trades').value = p.max_trades;
+      if(p.max_loss !== undefined)   document.getElementById('smax_loss').value   = p.max_loss;
     }
     S._fails = 0; demo = false;
     setConn(true);
